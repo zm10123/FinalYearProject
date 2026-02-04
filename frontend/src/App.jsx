@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Tasks from './pages/Tasks'
+import TaskDetail from './pages/TaskDetail'
 import Calendar from './pages/Calendar'
 import Groups from './pages/Groups'
 import Archive from './pages/Archive'
@@ -33,6 +34,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Layout><Tasks /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tasks/:id"
+            element={
+              <ProtectedRoute>
+                <Layout><TaskDetail /></Layout>
               </ProtectedRoute>
             }
           />
