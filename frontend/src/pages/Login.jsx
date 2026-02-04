@@ -84,7 +84,7 @@ export default function Login() {
         </div>
       </div>
 
-      {/* Right side - Promo */}
+      {/* Right side - Promotion */}
       <div className="hidden lg:flex w-5/12 bg-stone-800 items-center justify-center p-10">
         <div className="text-white max-w-sm">
           <h2 className="text-3xl font-bold mb-4">Stay on top of your coursework</h2>
