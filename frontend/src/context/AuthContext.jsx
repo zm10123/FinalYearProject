@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext({})
 
-// Hook to use auth context
 export const useAuth = () => useContext(AuthContext)
 
 export function AuthProvider({ children }) {
@@ -27,7 +26,6 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Sign up with email/password
   const signUp = async (email, password, fullName) => {
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -39,7 +37,6 @@ export function AuthProvider({ children }) {
     return { data, error }
   }
 
-  // Sign in with email/password
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -48,7 +45,6 @@ export function AuthProvider({ children }) {
     return { data, error }
   }
 
-  // Sign out
   const signOut = async () => {
     const { error } = await supabase.auth.signOut()
     return { error }

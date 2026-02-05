@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
@@ -16,41 +16,57 @@ export default function GroupDetail() {
   const [activeTab, setActiveTab] = useState('tasks')
   const [userRole, setUserRole] = useState(null)
 
-  // Forms
+  // Task form
   const [showTaskForm, setShowTaskForm] = useState(false)
   const [taskTitle, setTaskTitle] = useState('')
+  const [savingTask, setSavingTask] = useState(false)
+
+  // Invite form
   const [inviteEmail, setInviteEmail] = useState('')
+  const [inviting, setInviting] = useState(false)
 
   useEffect(() => {
-    fetchGroup()
-  }, [id])
+    if (user && id) fetchAll()
+  }, [user, id])
 
-  const fetchGroup = async () => {
+  const fetchAll = async () => {
+    setLoading(true)
+
     // Get group details
-    const { data: groupData } = await supabase
+    const { data: groupData, error: groupError } = await supabase
       .from('groups')
       .select('*')
       .eq('id', id)
       .single()
 
-    if (!groupData) {
+    if (groupError || !groupData) {
+      console.error('Error fetching group:', groupError)
       navigate('/groups')
       return
     }
     setGroup(groupData)
 
-    // Get members with profiles
+    // Get members with profile info
     const { data: membersData } = await supabase
       .from('group_members')
-      .select('*, profiles(email, full_name)')
+      .select(`
+        id,
+        user_id,
+        role,
+        status,
+        profiles (
+          email,
+          full_name
+        )
+      `)
       .eq('group_id', id)
       .eq('status', 'active')
 
     setMembers(membersData || [])
 
-    // Find user's role
-    const userMember = membersData?.find(m => m.user_id === user.id)
-    setUserRole(userMember?.role)
+    // Find current user's role
+    const currentMember = (membersData || []).find(m => m.user_id === user.id)
+    setUserRole(currentMember?.role)
 
     // Get group tasks
     const { data: tasksData } = await supabase
@@ -72,63 +88,98 @@ export default function GroupDetail() {
     setLoading(false)
   }
 
-  const createGroupTask = async (e) => {
+  const createTask = async (e) => {
     e.preventDefault()
-    const { error } = await supabase
+    if (!taskTitle.trim()) return
+    setSavingTask(true)
+
+    const { data, error } = await supabase
       .from('tasks')
-      .insert({
+      .insert([{
         user_id: user.id,
         group_id: id,
-        title: taskTitle,
+        title: taskTitle.trim(),
         status: 'pending',
         priority: 'medium'
-      })
+      }])
+      .select()
 
-    if (!error) {
+    if (!error && data) {
+      setTasks([data[0], ...tasks])
       setTaskTitle('')
       setShowTaskForm(false)
-      fetchGroup()
+    }
+    setSavingTask(false)
+  }
+
+  const toggleTaskComplete = async (task) => {
+    const newStatus = task.status === 'completed' ? 'pending' : 'completed'
+    
+    const { error } = await supabase
+      .from('tasks')
+      .update({ status: newStatus })
+      .eq('id', task.id)
+
+    if (!error) {
+      setTasks(tasks.map(t => 
+        t.id === task.id ? { ...t, status: newStatus } : t
+      ))
     }
   }
 
   const inviteMember = async (e) => {
     e.preventDefault()
+    if (!inviteEmail.trim()) return
+    setInviting(true)
+
     // Find user by email
-    const { data: invitee } = await supabase
+    const { data: invitee, error: findError } = await supabase
       .from('profiles')
       .select('id')
-      .eq('email', inviteEmail)
+      .eq('email', inviteEmail.trim())
       .single()
 
-    if (!invitee) {
-      alert('User not found')
+    if (findError || !invitee) {
+      alert('User not found with that email')
+      setInviting(false)
       return
     }
 
+    // Check if already a member
+    const existing = members.find(m => m.user_id === invitee.id)
+    if (existing) {
+      alert('User is already a member')
+      setInviting(false)
+      return
+    }
+
+    // Add member
     const { error } = await supabase
       .from('group_members')
-      .insert({
+      .insert([{
         group_id: id,
         user_id: invitee.id,
         role: 'viewer',
         invited_by: user.id,
         status: 'active'
-      })
+      }])
 
-    if (!error) {
-      setInviteEmail('')
-      fetchGroup()
-    } else {
+    if (error) {
       alert('Failed to invite: ' + error.message)
+    } else {
+      setInviteEmail('')
+      fetchAll() // Refresh members list
     }
+    setInviting(false)
   }
 
   const uploadFile = async (e) => {
-    const file = e.target.files[0]
+    const file = e.target.files?.[0]
     if (!file) return
 
     const filePath = `${id}/${Date.now()}_${file.name}`
 
+    // Upload to storage
     const { error: uploadError } = await supabase.storage
       .from('group-files')
       .upload(filePath, file)
@@ -138,171 +189,222 @@ export default function GroupDetail() {
       return
     }
 
-    const { error } = await supabase.from('group_files').insert({
-      group_id: id,
-      uploaded_by: user.id,
-      file_name: file.name,
-      file_path: filePath,
-      file_size: file.size,
-      mime_type: file.type
-    })
+    // Save file record
+    const { data, error } = await supabase
+      .from('group_files')
+      .insert([{
+        group_id: id,
+        uploaded_by: user.id,
+        file_name: file.name,
+        file_path: filePath,
+        file_size: file.size,
+        mime_type: file.type
+      }])
+      .select()
 
-    if (!error) fetchGroup()
+    if (!error && data) {
+      setFiles([data[0], ...files])
+    }
+
+    // Clear input
+    e.target.value = ''
   }
 
-  const deleteFile = async (fileId, filePath) => {
-    if (!confirm('Delete this file?')) return
+  const deleteFile = async (file) => {
+    if (!window.confirm('Delete this file?')) return
 
-    await supabase.storage.from('group-files').remove([filePath])
-    const { error } = await supabase.from('group_files').delete().eq('id', fileId)
-    if (!error) setFiles(files.filter(f => f.id !== fileId))
+    // Delete from storage
+    await supabase.storage
+      .from('group-files')
+      .remove([file.file_path])
+
+    // Delete record
+    const { error } = await supabase
+      .from('group_files')
+      .delete()
+      .eq('id', file.id)
+
+    if (!error) {
+      setFiles(files.filter(f => f.id !== file.id))
+    }
   }
 
   const formatFileSize = (bytes) => {
+    if (!bytes) return '0 B'
     if (bytes < 1024) return bytes + ' B'
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
   }
 
-  if (loading) return <div className="text-stone-500">Loading...</div>
+  if (loading) return <div>Loading...</div>
+  if (!group) return <div>Group not found</div>
 
   const canEdit = userRole === 'admin' || userRole === 'editor'
+  const isAdmin = userRole === 'admin'
 
   return (
     <div>
-      <button onClick={() => navigate('/groups')} className="text-stone-500 text-sm mb-4">← Back to Groups</button>
+      <Link to="/groups" className="back-link">← Back to Groups</Link>
 
-      <div className="flex justify-between items-start mb-6">
+      <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">{group.name}</h1>
-          <p className="text-stone-600">{group.description || 'No description'}</p>
+          <h1 className="page-title">{group.name}</h1>
+          <p className="page-subtitle">{group.description || 'No description'}</p>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-4 border-b border-stone-200 mb-6">
-        {['tasks', 'members', 'files'].map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`pb-2 px-1 text-sm font-medium capitalize ${
-              activeTab === tab
-                ? 'border-b-2 border-stone-800 text-stone-800'
-                : 'text-stone-500'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
+      {}
+      <div className="tabs">
+        <button
+          className={`tab ${activeTab === 'tasks' ? 'active' : ''}`}
+          onClick={() => setActiveTab('tasks')}
+        >
+          Tasks ({tasks.length})
+        </button>
+        <button
+          className={`tab ${activeTab === 'members' ? 'active' : ''}`}
+          onClick={() => setActiveTab('members')}
+        >
+          Members ({members.length})
+        </button>
+        <button
+          className={`tab ${activeTab === 'files' ? 'active' : ''}`}
+          onClick={() => setActiveTab('files')}
+        >
+          Files ({files.length})
+        </button>
       </div>
 
-      {/* Tasks Tab */}
+      {}
       {activeTab === 'tasks' && (
         <div>
           {canEdit && (
-            <div className="mb-4">
+            <div style={{ marginBottom: '16px' }}>
               {showTaskForm ? (
-                <form onSubmit={createGroupTask} className="flex gap-2">
+                <form onSubmit={createTask} style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="text"
                     value={taskTitle}
                     onChange={(e) => setTaskTitle(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-stone-200 rounded-md"
+                    className="form-input"
                     placeholder="Task title"
+                    style={{ flex: 1 }}
                     required
                   />
-                  <button type="submit" className="bg-stone-800 text-white px-4 py-2 rounded-md text-sm">Add</button>
-                  <button type="button" onClick={() => setShowTaskForm(false)} className="px-4 py-2 border border-stone-200 rounded-md text-sm">Cancel</button>
+                  <button type="submit" disabled={savingTask} className="btn btn-primary">
+                    {savingTask ? 'Adding...' : 'Add'}
+                  </button>
+                  <button type="button" onClick={() => setShowTaskForm(false)} className="btn btn-secondary">
+                    Cancel
+                  </button>
                 </form>
               ) : (
-                <button
-                  onClick={() => setShowTaskForm(true)}
-                  className="bg-stone-800 text-white px-4 py-2 rounded-md text-sm"
-                >
+                <button onClick={() => setShowTaskForm(true)} className="btn btn-primary">
                   + Add Task
                 </button>
               )}
             </div>
           )}
 
-          <div className="bg-white border border-stone-200 rounded-lg divide-y divide-stone-100">
+          <div className="card">
             {tasks.length === 0 ? (
-              <div className="p-8 text-center text-stone-500">No tasks yet</div>
+              <div className="empty-state">No tasks yet</div>
             ) : (
-              tasks.map(task => (
-                <div key={task.id} className="p-4 flex items-center gap-3">
-                  <div className={`w-4 h-4 rounded border-2 ${
-                    task.status === 'completed' ? 'bg-stone-800 border-stone-800' : 'border-stone-300'
-                  }`} />
-                  <span className={task.status === 'completed' ? 'line-through text-stone-400' : ''}>
-                    {task.title}
-                  </span>
-                </div>
-              ))
+              <div className="task-list">
+                {tasks.map(task => (
+                  <div key={task.id} className="task-item">
+                    <button
+                      onClick={() => toggleTaskComplete(task)}
+                      className={`task-checkbox ${task.status === 'completed' ? 'checked' : ''}`}
+                      disabled={!canEdit}
+                    />
+                    <div className="task-content">
+                      <span className={`task-title ${task.status === 'completed' ? 'completed' : ''}`}>
+                        {task.title}
+                      </span>
+                    </div>
+                    <span className={`task-priority priority-${task.priority}`}>
+                      {task.priority}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Members Tab */}
+      {}
       {activeTab === 'members' && (
         <div>
-          {userRole === 'admin' && (
-            <form onSubmit={inviteMember} className="flex gap-2 mb-4">
+          {isAdmin && (
+            <form onSubmit={inviteMember} style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
               <input
                 type="email"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
-                className="flex-1 px-3 py-2 border border-stone-200 rounded-md"
+                className="form-input"
                 placeholder="Email to invite"
+                style={{ flex: 1 }}
                 required
               />
-              <button type="submit" className="bg-stone-800 text-white px-4 py-2 rounded-md text-sm">Invite</button>
+              <button type="submit" disabled={inviting} className="btn btn-primary">
+                {inviting ? 'Inviting...' : 'Invite'}
+              </button>
             </form>
           )}
 
-          <div className="bg-white border border-stone-200 rounded-lg divide-y divide-stone-100">
+          <div className="card">
             {members.map(member => (
-              <div key={member.id} className="p-4 flex items-center justify-between">
+              <div key={member.id} className="member-item">
                 <div>
-                  <div className="font-medium">{member.profiles?.full_name || member.profiles?.email}</div>
-                  <div className="text-sm text-stone-500">{member.profiles?.email}</div>
+                  <div className="member-name">
+                    {member.profiles?.full_name || 'Unknown'}
+                    {member.user_id === user.id && ' (You)'}
+                  </div>
+                  <div className="member-email">{member.profiles?.email}</div>
                 </div>
-                <span className="text-xs px-2 py-1 bg-stone-100 rounded capitalize">{member.role}</span>
+                <span className="group-role">{member.role}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Files Tab */}
+      {}
       {activeTab === 'files' && (
         <div>
           {canEdit && (
-            <div className="mb-4">
-              <label className="bg-stone-800 text-white px-4 py-2 rounded-md text-sm cursor-pointer">
+            <div style={{ marginBottom: '16px' }}>
+              <label className="btn btn-primary" style={{ cursor: 'pointer' }}>
                 Upload File
-                <input type="file" className="hidden" onChange={uploadFile} />
+                <input
+                  type="file"
+                  onChange={uploadFile}
+                  style={{ display: 'none' }}
+                />
               </label>
             </div>
           )}
 
-          <div className="bg-white border border-stone-200 rounded-lg divide-y divide-stone-100">
+          <div className="card">
             {files.length === 0 ? (
-              <div className="p-8 text-center text-stone-500">No files yet</div>
+              <div className="empty-state">No files yet</div>
             ) : (
               files.map(file => (
-                <div key={file.id} className="p-4 flex items-center justify-between">
+                <div key={file.id} className="file-item">
                   <div>
-                    <div className="font-medium">{file.file_name}</div>
-                    <div className="text-sm text-stone-500">{formatFileSize(file.file_size)}</div>
+                    <div className="file-name">{file.file_name}</div>
+                    <div className="file-size">{formatFileSize(file.file_size)}</div>
                   </div>
-                  <button
-                    onClick={() => deleteFile(file.id, file.file_path)}
-                    className="text-stone-400 hover:text-red-500"
-                  >
-                    ×
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => deleteFile(file)}
+                      className="task-delete"
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
               ))
             )}

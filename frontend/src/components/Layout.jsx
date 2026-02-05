@@ -10,7 +10,6 @@ export default function Layout({ children }) {
     navigate('/login')
   }
 
-  // Navigation items
   const navItems = [
     { to: '/', label: 'Dashboard' },
     { to: '/tasks', label: 'Tasks' },
@@ -24,77 +23,51 @@ export default function Layout({ children }) {
   ]
 
   return (
-    <div className="min-h-screen flex bg-stone-100">
-      {/* Sidebar */}
-      <aside className="w-60 bg-white border-r border-stone-200 p-4 flex flex-col">
-        <div className="text-lg font-bold px-3 mb-8">Project</div>
+    <div className="app-container">
+      <aside className="sidebar">
+        <div className="sidebar-logo">Project</div>
 
-        {/* Main nav */}
-        <nav className="mb-6">
-          <div className="text-xs font-semibold text-stone-400 uppercase tracking-wide px-3 mb-2">
-            Main
-          </div>
+        <nav className="nav-section">
+          <div className="nav-label">Main</div>
           {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
-              className={({ isActive }) =>
-                `flex items-center gap-2 px-3 py-2 rounded-md text-sm mb-1 ${
-                  isActive
-                    ? 'bg-stone-800 text-white'
-                    : 'text-stone-600 hover:bg-stone-100'
-                }`
-              }
+              end={item.to === '/'}
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
             >
               {item.label}
             </NavLink>
           ))}
         </nav>
 
-        {/* Secondary nav */}
-        <nav className="mb-6">
-          <div className="text-xs font-semibold text-stone-400 uppercase tracking-wide px-3 mb-2">
-            Other
-          </div>
+        <nav className="nav-section">
+          <div className="nav-label">Other</div>
           {secondaryNav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
-              className={({ isActive }) =>
-                `flex items-center gap-2 px-3 py-2 rounded-md text-sm mb-1 ${
-                  isActive
-                    ? 'bg-stone-800 text-white'
-                    : 'text-stone-600 hover:bg-stone-100'
-                }`
-              }
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
             >
               {item.label}
             </NavLink>
           ))}
         </nav>
 
-        {/* User info at bottom */}
-        <div className="mt-auto pt-4 border-t border-stone-200">
-          <div className="flex items-center gap-3 px-3 py-2">
-            <div className="w-8 h-8 rounded-full bg-stone-200 border-2 border-stone-300" />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">
-                {user?.user_metadata?.full_name || 'User'}
-              </div>
-              <div className="text-xs text-stone-400 truncate">{user?.email}</div>
+        <div className="sidebar-footer">
+          <div className="user-info">
+            <div className="user-name">
+              {user?.user_metadata?.full_name || 'User'}
             </div>
+            <div className="user-email">{user?.email}</div>
           </div>
-          <button
-            onClick={handleSignOut}
-            className="w-full text-left px-3 py-2 text-sm text-stone-600 hover:bg-stone-100 rounded-md"
-          >
+          <button onClick={handleSignOut} className="signout-btn">
             Sign out
           </button>
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 p-8 overflow-auto">
+      <main className="main-content">
         {children}
       </main>
     </div>

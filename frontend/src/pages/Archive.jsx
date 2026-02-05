@@ -12,14 +12,16 @@ export default function Archive() {
   }, [user])
 
   const fetchArchived = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('tasks')
       .select('*')
       .eq('user_id', user.id)
       .eq('status', 'archived')
       .order('updated_at', { ascending: false })
 
-    setTasks(data || [])
+    if (!error) {
+      setTasks(data || [])
+    }
     setLoading(false)
   }
 
@@ -29,46 +31,59 @@ export default function Archive() {
       .update({ status: 'pending' })
       .eq('id', taskId)
 
-    if (!error) setTasks(tasks.filter(t => t.id !== taskId))
+    if (!error) {
+      setTasks(tasks.filter(t => t.id !== taskId))
+    }
   }
 
   const deleteTask = async (taskId) => {
-    if (!confirm('Permanently delete this task?')) return
-    const { error } = await supabase.from('tasks').delete().eq('id', taskId)
-    if (!error) setTasks(tasks.filter(t => t.id !== taskId))
+    if (!window.confirm('Permanently delete this task?')) return
+
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', taskId)
+
+    if (!error) {
+      setTasks(tasks.filter(t => t.id !== taskId))
+    }
   }
 
-  if (loading) return <div className="text-stone-500">Loading...</div>
+  if (loading) return <div>Loading...</div>
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Archive</h1>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Archive</h1>
+          <p className="page-subtitle">{tasks.length} archived tasks</p>
+        </div>
+      </div>
 
-      <div className="bg-white border border-stone-200 rounded-lg">
+      <div className="card">
         {tasks.length === 0 ? (
-          <div className="p-8 text-center text-stone-500">No archived tasks</div>
+          <div className="empty-state">No archived tasks</div>
         ) : (
-          <div className="divide-y divide-stone-100">
+          <div className="task-list">
             {tasks.map(task => (
-              <div key={task.id} className="p-4 flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{task.title}</div>
-                  <div className="text-sm text-stone-500">{task.description || 'No description'}</div>
+              <div key={task.id} className="task-item">
+                <div className="task-content">
+                  <div className="task-title">{task.title}</div>
+                  <div className="task-meta">{task.description || 'No description'}</div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => restoreTask(task.id)}
-                    className="px-3 py-1 text-sm border border-stone-200 rounded-md"
-                  >
-                    Restore
-                  </button>
-                  <button
-                    onClick={() => deleteTask(task.id)}
-                    className="px-3 py-1 text-sm text-red-600 border border-red-200 rounded-md"
-                  >
-                    Delete
-                  </button>
-                </div>
+                <button
+                  onClick={() => restoreTask(task.id)}
+                  className="btn btn-secondary"
+                  style={{ marginRight: '8px' }}
+                >
+                  Restore
+                </button>
+                <button
+                  onClick={() => deleteTask(task.id)}
+                  className="btn btn-danger"
+                >
+                  Delete
+                </button>
               </div>
             ))}
           </div>

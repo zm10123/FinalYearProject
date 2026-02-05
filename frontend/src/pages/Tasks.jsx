@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
@@ -7,12 +8,14 @@ export default function Tasks() {
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
 
+  // Form fields
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [priority, setPriority] = useState('medium')
-  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (user) fetchTasks()
@@ -27,28 +30,50 @@ export default function Tasks() {
       .neq('status', 'archived')
       .order('created_at', { ascending: false })
 
-    if (!error) setTasks(data || [])
+    if (error) {
+      console.error('Error fetching tasks:', error)
+      setError(error.message)
+    } else {
+      setTasks(data || [])
+    }
     setLoading(false)
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    setError(null)
     setSaving(true)
+
+    // Create the task object
+    const taskData = {
+      user_id: user.id,
+      title: title.trim(),
+      description: description.trim() || null,
+      due_date: dueDate || null,
+      priority: priority,
+      status: 'pending'
+    }
+
+    console.log('Creating task:', taskData) // Debug log
 
     const { data, error } = await supabase
       .from('tasks')
-      .insert({
-        user_id: user.id,
-        title,
-        description: description || null,
-        due_date: dueDate || null,
-        priority,
-        status: 'pending'
-      })
+      .insert([taskData])
       .select()
 
-    if (!error && data) {
+    console.log('Response:', { data, error }) // Debug log
+
+    if (error) {
+      console.error('Error creating task:', error)
+      setError(error.message)
+      setSaving(false)
+      return
+    }
+
+    if (data && data.length > 0) {
+      // Add new task to the list
       setTasks([data[0], ...tasks])
+      // Reset form
       setTitle('')
       setDescription('')
       setDueDate('')
@@ -60,128 +85,172 @@ export default function Tasks() {
 
   const toggleComplete = async (task) => {
     const newStatus = task.status === 'completed' ? 'pending' : 'completed'
+    
     const { error } = await supabase
       .from('tasks')
       .update({ status: newStatus })
       .eq('id', task.id)
 
-    if (!error) {
-      setTasks(tasks.map(t => t.id === task.id ? { ...t, status: newStatus } : t))
+    if (error) {
+      console.error('Error updating task:', error)
+      return
     }
+
+    // Update local state
+    setTasks(tasks.map(t => 
+      t.id === task.id ? { ...t, status: newStatus } : t
+    ))
   }
 
   const deleteTask = async (taskId) => {
-    if (!confirm('Delete this task?')) return
-    const { error } = await supabase.from('tasks').delete().eq('id', taskId)
-    if (!error) setTasks(tasks.filter(t => t.id !== taskId))
+    if (!window.confirm('Delete this task?')) return
+
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', taskId)
+
+    if (error) {
+      console.error('Error deleting task:', error)
+      return
+    }
+
+    // Remove from local state
+    setTasks(tasks.filter(t => t.id !== taskId))
   }
 
   const formatDate = (dateStr) => {
     if (!dateStr) return 'No due date'
-    return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    return new Date(dateStr).toLocaleDateString('en-GB', { 
+      day: 'numeric', 
+      month: 'short' 
+    })
   }
 
-  const priorityStyles = {
-    high: 'bg-red-50 text-red-600',
-    medium: 'bg-amber-50 text-amber-600',
-    low: 'bg-stone-100 text-stone-600'
-  }
-
-  if (loading) return <div className="text-stone-500">Loading tasks...</div>
+  if (loading) return <div>Loading tasks...</div>
 
   return (
     <div>
-      <div className="flex justify-between items-start mb-6">
+      <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Tasks</h1>
-          <p className="text-stone-600">{tasks.length} tasks</p>
+          <h1 className="page-title">Tasks</h1>
+          <p className="page-subtitle">{tasks.length} tasks</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="bg-stone-800 text-white px-4 py-2 rounded-md text-sm"
+          className="btn btn-primary"
         >
           {showForm ? 'Cancel' : '+ New Task'}
         </button>
       </div>
 
+      {error && <div className="error-message mb-4">{error}</div>}
+
+      {/* Create Task Form */}
       {showForm && (
-        <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
-          <h2 className="font-semibold mb-4">Create Task</h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Title</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-200 rounded-md"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Description</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-200 rounded-md"
-                rows={3}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Due Date</label>
+        <div className="card mb-6">
+          <div className="card-body">
+            <h2 style={{ fontWeight: '600', marginBottom: '16px' }}>Create Task</h2>
+            <form onSubmit={handleSubmit}>
+              <div className="form-group">
+                <label className="form-label">Title *</label>
                 <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-stone-200 rounded-md"
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="form-input"
+                  placeholder="Enter task title"
+                  required
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Priority</label>
-                <select
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value)}
-                  className="w-full px-3 py-2 border border-stone-200 rounded-md"
-                >
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
+
+              <div className="form-group">
+                <label className="form-label">Description</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="form-input form-textarea"
+                  placeholder="Optional description"
+                />
               </div>
-            </div>
-            <button
-              type="submit"
-              disabled={saving}
-              className="bg-stone-800 text-white px-4 py-2 rounded-md text-sm disabled:opacity-50"
-            >
-              {saving ? 'Creating...' : 'Create Task'}
-            </button>
-          </form>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Due Date</label>
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="form-input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Priority</label>
+                  <select
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value)}
+                    className="form-input"
+                  >
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={saving || !title.trim()}
+                className="btn btn-primary"
+              >
+                {saving ? 'Creating...' : 'Create Task'}
+              </button>
+            </form>
+          </div>
         </div>
       )}
 
-      <div className="bg-white border border-stone-200 rounded-lg divide-y divide-stone-100">
+      {/* Task List */}
+      <div className="card">
         {tasks.length === 0 ? (
-          <div className="p-8 text-center text-stone-500">No tasks yet. Create your first task!</div>
+          <div className="empty-state">
+            No tasks yet. Create your first task!
+          </div>
         ) : (
-          tasks.map((task) => (
-            <div key={task.id} className={`p-4 flex items-start gap-3 ${task.status === 'completed' ? 'opacity-50' : ''}`}>
-              <button
-                onClick={() => toggleComplete(task)}
-                className={`w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5 ${
-                  task.status === 'completed' ? 'bg-stone-800 border-stone-800' : 'border-stone-300'
-                }`}
-              />
-              <div className="flex-1 min-w-0">
-                <div className={`font-medium ${task.status === 'completed' ? 'line-through' : ''}`}>{task.title}</div>
-                {task.description && <div className="text-sm text-stone-500 mt-1">{task.description}</div>}
-                <div className="text-xs text-stone-400 mt-2">{formatDate(task.due_date)}</div>
+          <div className="task-list">
+            {tasks.map((task) => (
+              <div key={task.id} className="task-item">
+                <button
+                  onClick={() => toggleComplete(task)}
+                  className={`task-checkbox ${task.status === 'completed' ? 'checked' : ''}`}
+                  title={task.status === 'completed' ? 'Mark as pending' : 'Mark as complete'}
+                />
+                <div className="task-content">
+                  <Link 
+                    to={`/tasks/${task.id}`} 
+                    className={`task-title ${task.status === 'completed' ? 'completed' : ''}`}
+                    style={{ textDecoration: 'none', color: 'inherit' }}
+                  >
+                    {task.title}
+                  </Link>
+                  {task.description && (
+                    <div className="task-meta">{task.description}</div>
+                  )}
+                  <div className="task-meta">{formatDate(task.due_date)}</div>
+                </div>
+                <span className={`task-priority priority-${task.priority}`}>
+                  {task.priority}
+                </span>
+                <button
+                  onClick={() => deleteTask(task.id)}
+                  className="task-delete"
+                  title="Delete task"
+                >
+                  ×
+                </button>
               </div>
-              <span className={`text-xs px-2 py-1 rounded ${priorityStyles[task.priority]}`}>{task.priority}</span>
-              <button onClick={() => deleteTask(task.id)} className="text-stone-400 hover:text-red-500 text-lg">×</button>
-            </div>
-          ))
+            ))}
+          </div>
         )}
       </div>
     </div>

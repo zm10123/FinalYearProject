@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
@@ -11,8 +11,9 @@ export default function TaskDetail() {
   const [task, setTask] = useState(null)
   const [notes, setNotes] = useState([])
   const [loading, setLoading] = useState(true)
-  const [newNote, setNewNote] = useState('')
   const [editing, setEditing] = useState(false)
+  const [newNote, setNewNote] = useState('')
+  const [saving, setSaving] = useState(false)
 
   // Edit form state
   const [title, setTitle] = useState('')
@@ -22,9 +23,11 @@ export default function TaskDetail() {
   const [status, setStatus] = useState('pending')
 
   useEffect(() => {
-    fetchTask()
-    fetchNotes()
-  }, [id])
+    if (user && id) {
+      fetchTask()
+      fetchNotes()
+    }
+  }, [user, id])
 
   const fetchTask = async () => {
     const { data, error } = await supabase
@@ -34,40 +37,56 @@ export default function TaskDetail() {
       .single()
 
     if (error || !data) {
+      console.error('Error fetching task:', error)
       navigate('/tasks')
       return
     }
 
     setTask(data)
-    setTitle(data.title)
+    // Set form values
+    setTitle(data.title || '')
     setDescription(data.description || '')
     setDueDate(data.due_date ? data.due_date.split('T')[0] : '')
-    setPriority(data.priority)
-    setStatus(data.status)
+    setPriority(data.priority || 'medium')
+    setStatus(data.status || 'pending')
     setLoading(false)
   }
 
   const fetchNotes = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('task_notes')
       .select('*')
       .eq('task_id', id)
       .order('created_at', { ascending: false })
 
-    setNotes(data || [])
+    if (!error) {
+      setNotes(data || [])
+    }
   }
 
   const handleUpdate = async (e) => {
     e.preventDefault()
+    setSaving(true)
+
     const { error } = await supabase
       .from('tasks')
-      .update({ title, description, due_date: dueDate || null, priority, status })
+      .update({
+        title,
+        description: description || null,
+        due_date: dueDate || null,
+        priority,
+        status
+      })
       .eq('id', id)
 
-    if (!error) {
+    if (error) {
+      console.error('Error updating task:', error)
+      alert('Failed to update task')
+    } else {
       setTask({ ...task, title, description, due_date: dueDate, priority, status })
       setEditing(false)
     }
+    setSaving(false)
   }
 
   const addNote = async (e) => {
@@ -76,172 +95,230 @@ export default function TaskDetail() {
 
     const { data, error } = await supabase
       .from('task_notes')
-      .insert({ task_id: id, user_id: user.id, content: newNote })
+      .insert([{
+        task_id: id,
+        user_id: user.id,
+        content: newNote.trim()
+      }])
       .select()
 
-    if (!error && data) {
+    if (error) {
+      console.error('Error adding note:', error)
+      return
+    }
+
+    if (data && data.length > 0) {
       setNotes([data[0], ...notes])
       setNewNote('')
     }
   }
 
   const deleteNote = async (noteId) => {
-    const { error } = await supabase.from('task_notes').delete().eq('id', noteId)
-    if (!error) setNotes(notes.filter(n => n.id !== noteId))
+    const { error } = await supabase
+      .from('task_notes')
+      .delete()
+      .eq('id', noteId)
+
+    if (!error) {
+      setNotes(notes.filter(n => n.id !== noteId))
+    }
   }
 
   const deleteTask = async () => {
-    if (!confirm('Delete this task?')) return
-    const { error } = await supabase.from('tasks').delete().eq('id', id)
-    if (!error) navigate('/tasks')
+    if (!window.confirm('Delete this task permanently?')) return
+
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', id)
+
+    if (!error) {
+      navigate('/tasks')
+    }
+  }
+
+  const archiveTask = async () => {
+    const { error } = await supabase
+      .from('tasks')
+      .update({ status: 'archived' })
+      .eq('id', id)
+
+    if (!error) {
+      navigate('/tasks')
+    }
   }
 
   const formatDate = (dateStr) => {
-    if (!dateStr) return 'No date'
-    return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    if (!dateStr) return 'Not set'
+    return new Date(dateStr).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    })
   }
 
   const formatTimestamp = (dateStr) => {
     return new Date(dateStr).toLocaleString('en-GB', {
-      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
     })
   }
 
-  if (loading) return <div className="text-stone-500">Loading...</div>
+  if (loading) return <div>Loading...</div>
+  if (!task) return <div>Task not found</div>
 
   return (
     <div>
-      <button onClick={() => navigate('/tasks')} className="text-stone-500 text-sm mb-4">← Back to Tasks</button>
+      <Link to="/tasks" className="back-link">← Back to Tasks</Link>
 
-      <div className="grid grid-cols-3 gap-6">
-        {/* Main content */}
-        <div className="col-span-2">
-          <div className="bg-white border border-stone-200 rounded-lg p-6">
-            {editing ? (
-              <form onSubmit={handleUpdate} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Title</label>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    className="w-full px-3 py-2 border border-stone-200 rounded-md"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Description</label>
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    className="w-full px-3 py-2 border border-stone-200 rounded-md"
-                    rows={4}
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Due Date</label>
-                    <input
-                      type="date"
-                      value={dueDate}
-                      onChange={(e) => setDueDate(e.target.value)}
-                      className="w-full px-3 py-2 border border-stone-200 rounded-md"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Priority</label>
-                    <select
-                      value={priority}
-                      onChange={(e) => setPriority(e.target.value)}
-                      className="w-full px-3 py-2 border border-stone-200 rounded-md"
-                    >
-                      <option value="high">High</option>
-                      <option value="medium">Medium</option>
-                      <option value="low">Low</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Status</label>
-                    <select
-                      value={status}
-                      onChange={(e) => setStatus(e.target.value)}
-                      className="w-full px-3 py-2 border border-stone-200 rounded-md"
-                    >
-                      <option value="pending">Pending</option>
-                      <option value="in_progress">In Progress</option>
-                      <option value="completed">Completed</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button type="submit" className="bg-stone-800 text-white px-4 py-2 rounded-md text-sm">Save</button>
-                  <button type="button" onClick={() => setEditing(false)} className="px-4 py-2 rounded-md text-sm border border-stone-200">Cancel</button>
-                </div>
-              </form>
-            ) : (
-              <>
-                <div className="flex justify-between items-start mb-4">
-                  <h1 className="text-xl font-bold">{task.title}</h1>
-                  <div className="flex gap-2">
-                    <button onClick={() => setEditing(true)} className="px-3 py-1 text-sm border border-stone-200 rounded-md">Edit</button>
-                    <button onClick={deleteTask} className="px-3 py-1 text-sm text-red-600 border border-red-200 rounded-md">Delete</button>
-                  </div>
-                </div>
-                <p className="text-stone-600 mb-6">{task.description || 'No description'}</p>
-
-                {/* Notes section */}
-                <div>
-                  <h3 className="font-semibold mb-3">Notes</h3>
-                  <form onSubmit={addNote} className="flex gap-2 mb-4">
+      <div className="detail-layout">
+        {}
+        <div>
+          <div className="card">
+            <div className="card-body">
+              {editing ? (
+                <form onSubmit={handleUpdate}>
+                  <div className="form-group">
+                    <label className="form-label">Title</label>
                     <input
                       type="text"
-                      value={newNote}
-                      onChange={(e) => setNewNote(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-stone-200 rounded-md text-sm"
-                      placeholder="Add a note..."
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      className="form-input"
+                      required
                     />
-                    <button type="submit" className="bg-stone-800 text-white px-4 py-2 rounded-md text-sm">Add</button>
-                  </form>
-                  <div className="space-y-2">
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Description</label>
+                    <textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      className="form-input form-textarea"
+                    />
+                  </div>
+
+                  <div className="form-row form-row-3">
+                    <div className="form-group">
+                      <label className="form-label">Due Date</label>
+                      <input
+                        type="date"
+                        value={dueDate}
+                        onChange={(e) => setDueDate(e.target.value)}
+                        className="form-input"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Priority</label>
+                      <select
+                        value={priority}
+                        onChange={(e) => setPriority(e.target.value)}
+                        className="form-input"
+                      >
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Status</label>
+                      <select
+                        value={status}
+                        onChange={(e) => setStatus(e.target.value)}
+                        className="form-input"
+                      >
+                        <option value="pending">Pending</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="submit" disabled={saving} className="btn btn-primary">
+                      {saving ? 'Saving...' : 'Save Changes'}
+                    </button>
+                    <button type="button" onClick={() => setEditing(false)} className="btn btn-secondary">
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                    <h1 style={{ fontSize: '20px', fontWeight: 'bold' }}>{task.title}</h1>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={() => setEditing(true)} className="btn btn-secondary">Edit</button>
+                      <button onClick={archiveTask} className="btn btn-secondary">Archive</button>
+                      <button onClick={deleteTask} className="btn btn-danger">Delete</button>
+                    </div>
+                  </div>
+
+                  <p style={{ color: '#666', marginBottom: '24px' }}>
+                    {task.description || 'No description'}
+                  </p>
+
+                  {}
+                  <div>
+                    <h3 style={{ fontWeight: '600', marginBottom: '12px' }}>Notes</h3>
+                    
+                    <form onSubmit={addNote} className="note-form" style={{ marginBottom: '16px' }}>
+                      <input
+                        type="text"
+                        value={newNote}
+                        onChange={(e) => setNewNote(e.target.value)}
+                        className="form-input"
+                        placeholder="Add a note..."
+                      />
+                      <button type="submit" className="btn btn-primary">Add</button>
+                    </form>
+
                     {notes.length === 0 ? (
-                      <p className="text-stone-400 text-sm">No notes yet</p>
+                      <p style={{ color: '#999', fontSize: '14px' }}>No notes yet</p>
                     ) : (
                       notes.map((note) => (
-                        <div key={note.id} className="bg-stone-50 p-3 rounded-md">
-                          <div className="flex justify-between items-start">
-                            <p className="text-sm">{note.content}</p>
-                            <button onClick={() => deleteNote(note.id)} className="text-stone-400 hover:text-red-500 text-sm">×</button>
+                        <div key={note.id} className="note-item">
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span className="note-content">{note.content}</span>
+                            <button
+                              onClick={() => deleteNote(note.id)}
+                              style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer' }}
+                            >
+                              ×
+                            </button>
                           </div>
-                          <p className="text-xs text-stone-400 mt-1">{formatTimestamp(note.created_at)}</p>
+                          <div className="note-time">{formatTimestamp(note.created_at)}</div>
                         </div>
                       ))
                     )}
                   </div>
-                </div>
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Sidebar */}
-        <div className="space-y-4">
-          <div className="bg-white border border-stone-200 rounded-lg p-4">
-            <h3 className="font-semibold mb-3">Details</h3>
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-stone-500">Status</span>
-                <span className="capitalize">{task.status.replace('_', ' ')}</span>
+        {}
+        <div className="detail-sidebar">
+          <div className="card">
+            <div className="card-body">
+              <h3 style={{ fontWeight: '600', marginBottom: '12px' }}>Details</h3>
+              <div className="detail-row">
+                <span className="detail-label">Status</span>
+                <span style={{ textTransform: 'capitalize' }}>{task.status?.replace('_', ' ')}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-stone-500">Priority</span>
-                <span className="capitalize">{task.priority}</span>
+              <div className="detail-row">
+                <span className="detail-label">Priority</span>
+                <span style={{ textTransform: 'capitalize' }}>{task.priority}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-stone-500">Due Date</span>
+              <div className="detail-row">
+                <span className="detail-label">Due Date</span>
                 <span>{formatDate(task.due_date)}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-stone-500">Created</span>
+              <div className="detail-row">
+                <span className="detail-label">Created</span>
                 <span>{formatDate(task.created_at)}</span>
               </div>
             </div>

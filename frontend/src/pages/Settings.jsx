@@ -11,64 +11,84 @@ export default function Settings() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setSaving(true)
+    setMessage('')
 
-    const { error } = await supabase.auth.updateUser({
+    // Update auth user metadata
+    const { error: authError } = await supabase.auth.updateUser({
       data: { full_name: fullName }
     })
 
-    if (error) {
-      setMessage('Error updating profile')
-    } else {
-      setMessage('Profile updated!')
-      // Also update profiles table
-      await supabase
-        .from('profiles')
-        .update({ full_name: fullName })
-        .eq('id', user.id)
+    if (authError) {
+      setMessage('Error updating profile: ' + authError.message)
+      setSaving(false)
+      return
     }
+
+    // Update profiles table
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ full_name: fullName })
+      .eq('id', user.id)
+
+    if (profileError) {
+      console.error('Error updating profile table:', profileError)
+    }
+
+    setMessage('Profile updated successfully!')
     setSaving(false)
   }
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Settings</h1>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Settings</h1>
+          <p className="page-subtitle">Manage your account</p>
+        </div>
+      </div>
 
-      <div className="bg-white border border-stone-200 rounded-lg p-6 max-w-md">
-        <h2 className="font-semibold mb-4">Profile</h2>
+      <div className="card" style={{ maxWidth: '500px' }}>
+        <div className="card-body">
+          <h2 style={{ fontWeight: '600', marginBottom: '16px' }}>Profile</h2>
 
-        {message && (
-          <div className="mb-4 p-3 bg-green-50 text-green-600 rounded-md text-sm">
-            {message}
-          </div>
-        )}
+          {message && (
+            <div className={message.includes('Error') ? 'error-message' : 'success-message'} style={{ marginBottom: '16px' }}>
+              {message}
+            </div>
+          )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
-            <input
-              type="email"
-              value={user?.email || ''}
-              disabled
-              className="w-full px-3 py-2 border border-stone-200 rounded-md bg-stone-50"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Full Name</label>
-            <input
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              className="w-full px-3 py-2 border border-stone-200 rounded-md"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={saving}
-            className="bg-stone-800 text-white px-4 py-2 rounded-md text-sm disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </form>
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label className="form-label">Email</label>
+              <input
+                type="email"
+                value={user?.email || ''}
+                disabled
+                className="form-input"
+                style={{ backgroundColor: '#f5f5f5' }}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Full Name</label>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="form-input"
+                placeholder="Your name"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={saving}
+              className="btn btn-primary"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   )

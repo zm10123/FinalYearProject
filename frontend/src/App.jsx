@@ -18,17 +18,58 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* Public routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           
-          <Route path="/" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />
-          <Route path="/tasks" element={<ProtectedRoute><Layout><Tasks /></Layout></ProtectedRoute>} />
-          <Route path="/tasks/:id" element={<ProtectedRoute><Layout><TaskDetail /></Layout></ProtectedRoute>} />
-          <Route path="/calendar" element={<ProtectedRoute><Layout><Calendar /></Layout></ProtectedRoute>} />
-          <Route path="/groups" element={<ProtectedRoute><Layout><Groups /></Layout></ProtectedRoute>} />
-          <Route path="/groups/:id" element={<ProtectedRoute><Layout><GroupDetail /></Layout></ProtectedRoute>} />
-          <Route path="/archive" element={<ProtectedRoute><Layout><Archive /></Layout></ProtectedRoute>} />
-          <Route path="/settings" element={<ProtectedRoute><Layout><Settings /></Layout></ProtectedRoute>} />
+          {/* Protected routes */}
+          <Route path="/" element={
+            <ProtectedRoute>
+              <Layout><Dashboard /></Layout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/tasks" element={
+            <ProtectedRoute>
+              <Layout><Tasks /></Layout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/tasks/:id" element={
+            <ProtectedRoute>
+              <Layout><TaskDetail /></Layout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/calendar" element={
+            <ProtectedRoute>
+              <Layout><Calendar /></Layout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/groups" element={
+            <ProtectedRoute>
+              <Layout><Groups /></Layout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/groups/:id" element={
+            <ProtectedRoute>
+              <Layout><GroupDetail /></Layout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/archive" element={
+            <ProtectedRoute>
+              <Layout><Archive /></Layout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/settings" element={
+            <ProtectedRoute>
+              <Layout><Settings /></Layout>
+            </ProtectedRoute>
+          } />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
