@@ -1,3 +1,18 @@
+services:
+  - type: web
+    name: student-task-manager
+    env: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: NODE_VERSION
+        value: 18
+```
+
+#### Create/Update: `.gitignore` 
+**Location:** `FINALYEARPROJECT/.gitignore`
+```
 # Dependencies
 node_modules/
 frontend/node_modules/
@@ -28,7 +43,3 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
-
-# Misc
-*.log
-.cache/
