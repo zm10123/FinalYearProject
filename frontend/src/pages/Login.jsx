@@ -74,7 +74,7 @@ export default function Login() {
 
       <div className="auth-promo-side">
         <div className="auth-promo">
-          <h2>Stay on top of your coursework</h2>
+          <h2>Stay on top of all your work</h2>
           <p>Track deadlines, manage assignments, and monitor your grades across all modules in one place.</p>
         </div>
       </div>
