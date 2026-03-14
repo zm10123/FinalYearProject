@@ -1,97 +1,143 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../services/supabaseClient'
 
-export default function Register() {
-  const [fullName, setFullName] = useState('')
+function Register() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
-  
-  const { signUp } = useAuth()
   const navigate = useNavigate()
+  const { signUp } = useAuth()
 
-  const handleSubmit = async (e) => {
+  async function handleSubmit(e) {
     e.preventDefault()
     setError(null)
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match')
+      return
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters')
+      return
+    }
+
     setLoading(true)
 
-    const { error } = await signUp(email, password, fullName)
-    
-    if (error) {
-      setError(error.message)
+    // create the auth account
+    const { data, error: signUpError } = await signUp(email, password)
+
+    if (signUpError) {
+      setError(signUpError.message)
       setLoading(false)
-    } else {
-      navigate('/login')
+      return
     }
+
+    // update the profile with their name
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ first_name: firstName, last_name: lastName })
+      .eq('id', data.user.id)
+
+    if (profileError) {
+      console.error('Profile update failed:', profileError.message)
+    }
+
+    navigate('/')
   }
 
   return (
-    <div className="auth-container">
-      <div className="auth-form-side">
-        <div className="auth-form-wrapper">
-          <div className="auth-logo">Project</div>
-          <h1 className="auth-title">Create an account</h1>
-          <p className="auth-subtitle">Start managing your tasks today</p>
+    <div className="min-h-screen flex items-center justify-center bg-stone-50">
+      <div className="w-full max-w-sm p-8">
+        <h1 className="text-2xl font-bold mb-1">Create account</h1>
+        <p className="text-stone-500 text-sm mb-8">Start managing your tasks</p>
 
-          {error && <div className="error-message">{error}</div>}
+        {error && (
+          <div className="bg-red-50 text-red-600 text-sm p-3 rounded mb-4">
+            {error}
+          </div>
+        )}
 
-          <form onSubmit={handleSubmit} className="auth-form">
-            <div className="form-group">
-              <label className="form-label">Full Name</label>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-sm font-medium mb-1">First name</label>
               <input
                 type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="form-input"
-                placeholder="Alex Chen"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
                 required
+                className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
               />
             </div>
-
-            <div className="form-group">
-              <label className="form-label">Email</label>
+            <div className="flex-1">
+              <label className="block text-sm font-medium mb-1">Last name</label>
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="form-input"
-                placeholder="you@university.ac.uk"
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
                 required
+                className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
               />
             </div>
+          </div>
 
-            <div className="form-group">
-              <label className="form-label">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="form-input"
-                placeholder="••••••••"
-                minLength={6}
-                required
-              />
-            </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
+              placeholder="you@university.ac.uk"
+            />
+          </div>
 
-            <button type="submit" disabled={loading} className="btn btn-primary" style={{ width: '100%', padding: '12px' }}>
-              {loading ? 'Creating account...' : 'Create Account'}
-            </button>
-          </form>
+          <div>
+            <label className="block text-sm font-medium mb-1">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
+              placeholder="At least 6 characters"
+            />
+          </div>
 
-          <p className="auth-link" style={{ marginTop: '24px' }}>
-            Already have an account? <Link to="/login">Sign in</Link>
-          </p>
-        </div>
-      </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Confirm password</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
+            />
+          </div>
 
-      <div className="auth-promo-side">
-        <div className="auth-promo">
-          <h2>Stay on top of your coursework</h2>
-          <p>Track deadlines, manage assignments, and monitor your grades across all modules in one place.</p>
-        </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-2 bg-stone-900 text-white rounded text-sm font-medium hover:bg-stone-800 disabled:opacity-50"
+          >
+            {loading ? 'Creating account...' : 'Create account'}
+          </button>
+        </form>
+
+        <p className="text-sm text-stone-500 text-center mt-6">
+          Already have an account? <Link to="/login" className="text-stone-900 font-medium">Sign in</Link>
+        </p>
       </div>
     </div>
   )
 }
+
+export default Register

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
+import { supabase } from '../services/supabaseClient'
 
 export default function Settings() {
   const { user } = useAuth()
