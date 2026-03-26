@@ -6,23 +6,23 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Tasks from './pages/Tasks'
+import CreateTask from './pages/CreateTask'
 import TaskDetail from './pages/TaskDetail'
 import Calendar from './pages/Calendar'
 import Groups from './pages/Groups'
 import GroupDetail from './pages/GroupDetail'
 import Archive from './pages/Archive'
 import Settings from './pages/Settings'
+import Templates from './pages/Templates'
 
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           
-          {/* Protected routes */}
           <Route path="/" element={
             <ProtectedRoute>
               <Layout><Dashboard /></Layout>
@@ -32,6 +32,12 @@ function App() {
           <Route path="/tasks" element={
             <ProtectedRoute>
               <Layout><Tasks /></Layout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/tasks/new" element={
+            <ProtectedRoute>
+              <Layout><CreateTask /></Layout>
             </ProtectedRoute>
           } />
           
@@ -70,6 +76,13 @@ function App() {
               <Layout><Settings /></Layout>
             </ProtectedRoute>
           } />
+
+          <Route path="/templates" element={
+            <ProtectedRoute>
+              <Layout><Templates /></Layout>
+            </ProtectedRoute>
+          } />
+          
         </Routes>
       </BrowserRouter>
     </AuthProvider>

@@ -18,6 +18,7 @@ export default function Layout({ children }) {
   ]
 
   const secondaryNav = [
+    { to: '/templates', label: 'Templates' },
     { to: '/archive', label: 'Archive' },
     { to: '/settings', label: 'Settings' },
   ]
