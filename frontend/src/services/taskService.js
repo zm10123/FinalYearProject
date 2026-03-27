@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient'
 export async function getTasks(filters = {}) {
   let query = supabase
     .from('tasks')
-    .select('*, modules(id, name, code, courses(id, name))')
+    .select('*, modules(id, name, code, courses(id, name)), subtasks(id, is_completed)')
     .order('due_date', { ascending: true })
 
   if (filters.status) {
@@ -64,6 +64,17 @@ export async function getTaskById(id) {
   delete task.task_notes
 
   return { task, error: null }
+}
+
+export async function getScoredTasks() {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*, modules(id, name, code, courses(id, name))')
+    .not('score_achieved', 'is', null)
+    .not('score_total', 'is', null)
+    .order('module_id', { ascending: true })
+
+  return { data, error }
 }
 
 export async function createTask(taskData) {

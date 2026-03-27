@@ -28,6 +28,12 @@ function App() {
               <Layout><Dashboard /></Layout>
             </ProtectedRoute>
           } />
+
+          <Route path="/dashboard" element={
+            <ProtectedRoute>
+              <Layout><Dashboard /></Layout>
+            </ProtectedRoute>
+          } />
           
           <Route path="/tasks" element={
             <ProtectedRoute>
@@ -82,7 +88,7 @@ function App() {
               <Layout><Templates /></Layout>
             </ProtectedRoute>
           } />
-          
+
         </Routes>
       </BrowserRouter>
     </AuthProvider>
