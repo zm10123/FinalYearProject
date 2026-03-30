@@ -24,7 +24,7 @@ export async function saveTaskAsTemplate(templateData) {
 
   const { data, error } = await supabase
     .from('task_templates')
-    .insert({ ...templateData, created_by: user.id })
+    .insert({ ...templateData, user_id: user.id })
     .select()
     .single()
 

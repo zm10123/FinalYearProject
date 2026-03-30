@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { createTask } from '../services/taskService'
 import { getCourses, getModules, createCourse, createModule } from '../services/moduleService'
 import { getTemplates, getTemplateById, saveTaskAsTemplate } from '../services/templateService'
+import { getGroups } from '../services/groupService'
 
 function CreateTask() {
   const navigate = useNavigate()
@@ -44,15 +45,22 @@ function CreateTask() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // groups 
+  const [groups, setGroups] = useState([])
+
   useEffect(() => {
     loadCourses()
     loadTemplates()
+    loadGroups()
 
-    // check if we're creating from a template
+    // check if we're creating from a template or for a group based on URL params
     const templateId = searchParams.get('template')
     if (templateId) {
       applyTemplate(templateId)
     }
+
+    const groupParam = searchParams.get('group')
+    if (groupParam) setGroupId(groupParam)
   }, [])
 
   // when course changes, load its modules
@@ -213,6 +221,11 @@ function CreateTask() {
       await loadTemplates()
       alert('Template saved')
     }
+  }
+
+  async function loadGroups() {
+    const { data } = await getGroups()
+    if (data) setGroups(data.filter(g => g.memberStatus === 'accepted'))
   }
 
   return (
@@ -397,6 +410,22 @@ function CreateTask() {
             </select>
           </div>
         </div>
+
+        {groups.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Group (optional)</label>
+              <select
+                value={groupId}
+                onChange={(e) => setGroupId(e.target.value)}
+                className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
+              >
+                <option value="">Personal task</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
         {/* deadline and priority */}
         <div className="bg-white border border-stone-200 rounded-lg p-6 space-y-4">

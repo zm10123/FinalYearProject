@@ -1,747 +1,496 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { supabase } from '../services/supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import {
+  getGroupById, updateGroup, deleteGroup,
+  inviteMember, updateMemberRole, removeMember, leaveGroup,
+  addTaskToGroup
+} from '../services/groupService'
 
-export default function GroupDetail() {
+function GroupDetail() {
   const { id } = useParams()
-  const { user } = useAuth()
   const navigate = useNavigate()
+  const { user } = useAuth()
 
   const [group, setGroup] = useState(null)
-  const [members, setMembers] = useState([])
-  const [tasks, setTasks] = useState([])
-  const [files, setFiles] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('tasks')
-  const [userRole, setUserRole] = useState(null)
 
-  
-  const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(null)
-
-  
-  const [showTaskForm, setShowTaskForm] = useState(false)
-  const [taskTitle, setTaskTitle] = useState('')
-  const [taskDescription, setTaskDescription] = useState('')
-  const [savingTask, setSavingTask] = useState(false)
-
-  
+  // invite form
   const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState('editor')
   const [inviting, setInviting] = useState(false)
 
-  
-  const [uploading, setUploading] = useState(false)
+  // add task form
+  const [showAddTask, setShowAddTask] = useState(false)
+  const [taskTitle, setTaskTitle] = useState('')
+  const [taskDescription, setTaskDescription] = useState('')
+  const [taskDueDate, setTaskDueDate] = useState('')
+  const [taskPriority, setTaskPriority] = useState('medium')
+  const [addingTask, setAddingTask] = useState(false)
+
+  // settings form
+  const [editName, setEditName] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editModule, setEditModule] = useState('')
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (user && id) fetchAll()
-  }, [user, id])
+    loadGroup()
+  }, [id])
 
-  
-  useEffect(() => {
-    if (error || success) {
-      const timer = setTimeout(() => {
-        setError(null)
-        setSuccess(null)
-      }, 5000)
-      return () => clearTimeout(timer)
-    }
-  }, [error, success])
-
-  const fetchAll = async () => {
+  async function loadGroup() {
     setLoading(true)
-    setError(null)
-
-    try {
-      
-      const { data: groupData, error: groupError } = await supabase
-        .from('groups')
-        .select('*')
-        .eq('id', id)
-        .single()
-
-      if (groupError) throw groupError
-      if (!groupData) {
-        navigate('/groups')
-        return
-      }
-      setGroup(groupData)
-
-      
-      const { data: membersData, error: membersError } = await supabase
-        .from('group_members')
-        .select('id, user_id, role, status')
-        .eq('group_id', id)
-        .eq('status', 'active')
-
-      if (membersError) throw membersError
-
-      
-      const userIds = (membersData || []).map(m => m.user_id)
-
-      
-      let profilesData = []
-      if (userIds.length > 0) {
-        const { data: profiles, error: profilesError } = await supabase
-          .from('profiles')
-          .select('id, email, full_name')
-          .in('id', userIds)
-
-        if (profilesError) throw profilesError
-        profilesData = profiles || []
-      }
-
-     
-      const membersWithProfiles = (membersData || []).map(member => ({
-        ...member,
-        profiles: profilesData.find(p => p.id === member.user_id) || null
-      }))
-
-      setMembers(membersWithProfiles)
-
-     
-      const currentMember = membersWithProfiles.find(m => m.user_id === user.id)
-      setUserRole(currentMember?.role)
-
-      
-      const { data: tasksData, error: tasksError } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('group_id', id)
-        .order('created_at', { ascending: false })
-
-      if (tasksError) {
-        console.warn('Tasks fetch error:', tasksError)
-      } else {
-        setTasks(tasksData || [])
-      }
-
-      
-      const { data: filesData, error: filesError } = await supabase
-        .from('group_files')
-        .select('*')
-        .eq('group_id', id)
-        .order('created_at', { ascending: false })
-
-      if (filesError) {
-        console.warn('Files fetch error:', filesError)
-      } else {
-        setFiles(filesData || [])
-      }
-
-    } catch (err) {
-      console.error('Error fetching group data:', err)
+    const { group: data, error: err } = await getGroupById(id)
+    if (err) {
       setError(err.message)
-    } finally {
-      setLoading(false)
+    } else {
+      setGroup(data)
+      setEditName(data.name)
+      setEditDescription(data.description || '')
+      setEditModule(data.module || '')
     }
+    setLoading(false)
   }
 
-  const createTask = async (e) => {
-    e.preventDefault()
-    if (!taskTitle.trim()) {
-      setError('Task title is required')
-      return
-    }
-
-    setSavingTask(true)
-    setError(null)
-
-    try {
-      
-      const taskData = {
-        user_id: user.id,
-        group_id: id,
-        title: taskTitle.trim()
-      }
-
-     
-      if (taskDescription.trim()) {
-        taskData.description = taskDescription.trim()
-      }
-
-      const { data, error } = await supabase
-        .from('tasks')
-        .insert([taskData])
-        .select()
-
-      if (error) {
-        console.error('Task creation error:', error)
-        throw error
-      }
-
-      if (data && data.length > 0) {
-        setTasks([data[0], ...tasks])
-        setTaskTitle('')
-        setTaskDescription('')
-        setShowTaskForm(false)
-        setSuccess('Task created successfully')
-      }
-    } catch (err) {
-      console.error('Error creating task:', err)
-      setError(`Failed to create task: ${err.message}`)
-    } finally {
-      setSavingTask(false)
-    }
-  }
-
-  const toggleTaskComplete = async (task) => {
-    setError(null)
-    const newStatus = task.status === 'completed' ? 'pending' : 'completed'
-    
-    try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({ status: newStatus })
-        .eq('id', task.id)
-
-      if (error) throw error
-
-      
-      setTasks(tasks.map(t => 
-        t.id === task.id ? { ...t, status: newStatus } : t
-      ))
-      setSuccess(`Task marked as ${newStatus}`)
-    } catch (err) {
-      console.error('Error updating task:', err)
-      setError(`Failed to update task: ${err.message}`)
-    }
-  }
-
-  const inviteMember = async (e) => {
-    e.preventDefault()
-    if (!inviteEmail.trim()) {
-      setError('Email is required')
-      return
-    }
-
-    setInviting(true)
-    setError(null)
-
-    try {
-      console.log('Looking for user with email:', inviteEmail.trim().toLowerCase())
-
-      
-      const { data: profiles, error: findError } = await supabase
-        .from('profiles')
-        .select('id, email, full_name')
-        .ilike('email', inviteEmail.trim())
-        .limit(1)
-
-      console.log('Profile search result:', { profiles, findError })
-
-      if (findError) throw findError
-
-      if (!profiles || profiles.length === 0) {
-        setError('User not found with that email address. They may need to register first.')
-        setInviting(false)
-        return
-      }
-
-      const invitee = profiles[0]
-
-      
-      const existing = members.find(m => m.user_id === invitee.id)
-      if (existing) {
-        setError('User is already a member of this group')
-        setInviting(false)
-        return
-      }
-
-      console.log('Adding member:', {
-        group_id: id,
-        user_id: invitee.id,
-        role: 'viewer'
-      })
-
-     
-      const { data: newMember, error: insertError } = await supabase
-        .from('group_members')
-        .insert([{
-          group_id: id,
-          user_id: invitee.id,
-          role: 'viewer',  // Default role
-          status: 'active'
-        }])
-        .select()
-
-      console.log('Insert result:', { newMember, insertError })
-
-      if (insertError) throw insertError
-
-      setInviteEmail('')
-      setSuccess(`Successfully invited ${invitee.email} as a viewer`)
-      await fetchAll() 
-    } catch (err) {
-      console.error('Error inviting member:', err)
-      setError(`Failed to invite member: ${err.message}`)
-    } finally {
-      setInviting(false)
-    }
-  }
-
-  const uploadFile = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    
-    const maxSize = 10 * 1024 * 1024
-    if (file.size > maxSize) {
-      setError('File size must be less than 10MB')
-      e.target.value = ''
-      return
-    }
-
-    setUploading(true)
-    setError(null)
-
-    try {
-      
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
-      const filePath = `${id}/${fileName}`
-
-      
-      const { error: uploadError } = await supabase.storage
-        .from('group-files')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        })
-
-      if (uploadError) throw uploadError
-
-      
-      const { data, error: dbError } = await supabase
-        .from('group_files')
-        .insert([{
-          group_id: id,
-          uploaded_by: user.id,
-          file_name: file.name,
-          file_path: filePath,
-          file_size: file.size,
-          mime_type: file.type || 'application/octet-stream'
-        }])
-        .select()
-
-      if (dbError) throw dbError
-
-      if (data && data.length > 0) {
-        setFiles([data[0], ...files])
-        setSuccess(`Successfully uploaded ${file.name}`)
-      }
-    } catch (err) {
-      console.error('Error uploading file:', err)
-      setError(`Failed to upload file: ${err.message}`)
-    } finally {
-      setUploading(false)
-      e.target.value = '' 
-    }
-  }
-
-  const deleteFile = async (file) => {
-    if (!window.confirm(`Delete "${file.file_name}"?`)) return
-
-    setError(null)
-
-    try {
-      
-      const { error: storageError } = await supabase.storage
-        .from('group-files')
-        .remove([file.file_path])
-
-      if (storageError) console.warn('Storage delete warning:', storageError)
-
-      
-      const { error: dbError } = await supabase
-        .from('group_files')
-        .delete()
-        .eq('id', file.id)
-
-      if (dbError) throw dbError
-
-      
-      setFiles(files.filter(f => f.id !== file.id))
-      setSuccess('File deleted successfully')
-    } catch (err) {
-      console.error('Error deleting file:', err)
-      setError(`Failed to delete file: ${err.message}`)
-    }
-  }
-
-  const formatFileSize = (bytes) => {
-    if (!bytes || bytes === 0) return '0 B'
-    if (bytes < 1024) return bytes + ' B'
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
-  }
-
-  if (loading) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px' }}>
-        <div className="loading-spinner">Loading group...</div>
-      </div>
-    )
-  }
-
-  if (!group) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px' }}>
-        <p>Group not found</p>
-        <Link to="/groups" className="btn btn-primary" style={{ marginTop: '16px' }}>
-          Back to Groups
-        </Link>
-      </div>
-    )
-  }
-
-  const canEdit = userRole === 'admin' || userRole === 'editor'
+  // figure out the current user's role in this group
+  const currentMember = group?.members?.find(m => m.user_id === user?.id)
+  const userRole = currentMember?.role || 'viewer'
   const isAdmin = userRole === 'admin'
+  const canEdit = isAdmin || userRole === 'editor'
+
+  // --- member actions ---
+
+  async function handleInvite(e) {
+    e.preventDefault()
+    if (!inviteEmail.trim()) return
+    setInviting(true)
+    setError('')
+
+    const { error: err } = await inviteMember(id, inviteEmail.trim(), inviteRole)
+    if (err) {
+      setError(err.message)
+    } else {
+      setInviteEmail('')
+      await loadGroup()
+    }
+    setInviting(false)
+  }
+
+  async function handleRoleChange(userId, newRole) {
+    const { error: err } = await updateMemberRole(id, userId, newRole)
+    if (err) {
+      setError(err.message)
+    } else {
+      await loadGroup()
+    }
+  }
+
+  async function handleRemoveMember(userId, name) {
+    if (!window.confirm(`Remove ${name} from the group?`)) return
+    const { error: err } = await removeMember(id, userId)
+    if (err) {
+      setError(err.message)
+    } else {
+      await loadGroup()
+    }
+  }
+
+  async function handleLeave() {
+    if (!window.confirm('Leave this group? You will need to be reinvited to rejoin.')) return
+    const { error: err } = await leaveGroup(id)
+    if (!err) navigate('/groups')
+  }
+
+  // --- task actions ---
+
+  async function handleAddTask(e) {
+    e.preventDefault()
+    if (!taskTitle.trim()) return
+    setAddingTask(true)
+    setError('')
+
+    const { error: err } = await addTaskToGroup(id, {
+      title: taskTitle.trim(),
+      description: taskDescription.trim() || null,
+      due_date: taskDueDate || null,
+      priority: taskPriority,
+      status: 'pending',
+    })
+
+    if (err) {
+      setError(err.message)
+    } else {
+      setTaskTitle('')
+      setTaskDescription('')
+      setTaskDueDate('')
+      setShowAddTask(false)
+      await loadGroup()
+    }
+    setAddingTask(false)
+  }
+
+  // --- settings actions ---
+
+  async function handleSaveSettings(e) {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+
+    const { error: err } = await updateGroup(id, {
+      name: editName.trim(),
+      description: editDescription.trim() || null,
+      module: editModule.trim() || null,
+    })
+
+    if (err) {
+      setError(err.message)
+    } else {
+      await loadGroup()
+    }
+    setSaving(false)
+  }
+
+  async function handleDeleteGroup() {
+    if (!window.confirm('Delete this group permanently? All group tasks will be preserved but unlinked.')) return
+    const { error: err } = await deleteGroup(id)
+    if (!err) navigate('/groups')
+  }
+
+  // --- helpers ---
+
+  function formatDate(dateStr) {
+    if (!dateStr) return ''
+    return new Date(dateStr).toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'short', year: 'numeric'
+    })
+  }
+
+  function getInitials(member) {
+    const f = member.profiles?.first_name || ''
+    const l = member.profiles?.last_name || ''
+    if (f && l) return f[0] + l[0]
+    if (f) return f[0]
+    return '?'
+  }
+
+  function getMemberName(member) {
+    const f = member.profiles?.first_name || ''
+    const l = member.profiles?.last_name || ''
+    if (f || l) return `${f} ${l}`.trim()
+    return member.profiles?.email || 'Unknown'
+  }
+
+  function getDueLabel(task) {
+    if (!task.due_date) return null
+    const now = new Date()
+    const due = new Date(task.due_date)
+    const diff = Math.ceil((due - now) / 86400000)
+    if (diff < 0) return { text: 'Overdue', colour: 'text-red-600' }
+    if (diff === 0) return { text: 'Today', colour: 'text-red-600' }
+    if (diff === 1) return { text: 'Tomorrow', colour: 'text-amber-600' }
+    return { text: `${formatDate(task.due_date)}`, colour: 'text-stone-500' }
+  }
+
+  function timeAgo(dateStr) {
+    const diff = (new Date() - new Date(dateStr)) / 1000
+    if (diff < 60) return 'just now'
+    if (diff < 3600) return `${Math.floor(diff / 60)} min ago`
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+    return `${Math.floor(diff / 86400)}d ago`
+  }
+
+  const avatarColours = ['bg-blue-500', 'bg-purple-500', 'bg-teal-500', 'bg-amber-500', 'bg-red-400', 'bg-green-500']
+  function getAvatarColour(index) {
+    return avatarColours[index % avatarColours.length]
+  }
+
+  if (loading) return <div className="p-8 text-stone-400">Loading group...</div>
+  if (!group) return <div className="p-8 text-stone-500">Group not found</div>
+
+  const acceptedMembers = group.members.filter(m => m.status === 'accepted')
+  const pendingMembers = group.members.filter(m => m.status === 'pending')
+  const completedTasks = group.tasks.filter(t => t.status === 'completed').length
 
   return (
     <div>
-      <Link to="/groups" className="back-link" style={{ 
-        display: 'inline-block', 
-        marginBottom: '16px',
-        color: 'var(--accent)',
-        textDecoration: 'none'
-      }}>
+      <Link to="/groups" className="text-sm text-stone-500 hover:text-stone-900 mb-4 inline-block">
         ← Back to Groups
       </Link>
 
-      {}
       {error && (
-        <div style={{
-          padding: '12px 16px',
-          marginBottom: '16px',
-          background: 'var(--urgent-bg)',
-          color: 'var(--urgent)',
-          borderRadius: 'var(--radius)',
-          fontSize: '14px'
-        }}>
-          {error}
-        </div>
+        <div className="bg-red-50 text-red-600 text-sm p-3 rounded mb-4">{error}</div>
       )}
 
-      {success && (
-        <div style={{
-          padding: '12px 16px',
-          marginBottom: '16px',
-          background: 'var(--success-bg)',
-          color: 'var(--success)',
-          borderRadius: 'var(--radius)',
-          fontSize: '14px'
-        }}>
-          {success}
-        </div>
-      )}
-
-      <div className="page-header">
+      {/* header */}
+      <div className="flex justify-between items-start mb-6">
         <div>
-          <h1 className="page-title">{group.name}</h1>
-          <p className="page-subtitle">
-            {group.description || 'No description'} • Your role: {userRole || 'viewer'}
+          <h1 className="text-2xl font-bold">{group.name}</h1>
+          <p className="text-stone-500 text-sm">
+            {group.module && `${group.module} · `}
+            {acceptedMembers.length} member{acceptedMembers.length !== 1 ? 's' : ''}
+            {` · Created ${formatDate(group.created_at)}`}
           </p>
         </div>
+        {!isAdmin && (
+          <button onClick={handleLeave}
+            className="px-4 py-2 text-sm text-red-600 border border-red-200 rounded hover:bg-red-50">
+            Leave Group
+          </button>
+        )}
       </div>
 
-      {}
-      <div className="tabs" style={{ 
-        display: 'flex', 
-        gap: '8px', 
-        borderBottom: '1px solid var(--border)',
-        marginBottom: '24px'
-      }}>
-        <button
-          className={`tab ${activeTab === 'tasks' ? 'active' : ''}`}
-          onClick={() => setActiveTab('tasks')}
-          style={{
-            padding: '12px 20px',
-            border: 'none',
-            background: activeTab === 'tasks' ? 'var(--surface)' : 'transparent',
-            cursor: 'pointer',
-            fontWeight: activeTab === 'tasks' ? '600' : '400',
-            borderBottom: activeTab === 'tasks' ? '2px solid var(--accent)' : 'none'
-          }}
-        >
-          Tasks ({tasks.length})
-        </button>
-        <button
-          className={`tab ${activeTab === 'members' ? 'active' : ''}`}
-          onClick={() => setActiveTab('members')}
-          style={{
-            padding: '12px 20px',
-            border: 'none',
-            background: activeTab === 'members' ? 'var(--surface)' : 'transparent',
-            cursor: 'pointer',
-            fontWeight: activeTab === 'members' ? '600' : '400',
-            borderBottom: activeTab === 'members' ? '2px solid var(--accent)' : 'none'
-          }}
-        >
-          Members ({members.length})
-        </button>
-        <button
-          className={`tab ${activeTab === 'files' ? 'active' : ''}`}
-          onClick={() => setActiveTab('files')}
-          style={{
-            padding: '12px 20px',
-            border: 'none',
-            background: activeTab === 'files' ? 'var(--surface)' : 'transparent',
-            cursor: 'pointer',
-            fontWeight: activeTab === 'files' ? '600' : '400',
-            borderBottom: activeTab === 'files' ? '2px solid var(--accent)' : 'none'
-          }}
-        >
-          Files ({files.length})
-        </button>
+      {/* tabs */}
+      <div className="flex gap-1 border-b border-stone-200 mb-6">
+        {['tasks', 'members', 'activity', ...(isAdmin ? ['settings'] : [])].map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === tab
+                ? 'border-stone-900 text-stone-900'
+                : 'border-transparent text-stone-400 hover:text-stone-600'
+            }`}>
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
       </div>
 
-      {}
+      {/* === TASKS TAB === */}
       {activeTab === 'tasks' && (
         <div>
-          {canEdit && (
-            <div style={{ marginBottom: '16px' }}>
-              {showTaskForm ? (
-                <form onSubmit={createTask} className="card" style={{ padding: '20px' }}>
-                  <div className="form-group">
-                    <label className="form-label">Task Title *</label>
-                    <input
-                      type="text"
-                      value={taskTitle}
-                      onChange={(e) => setTaskTitle(e.target.value)}
-                      className="form-input"
-                      placeholder="Enter task title"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Description</label>
-                    <textarea
-                      value={taskDescription}
-                      onChange={(e) => setTaskDescription(e.target.value)}
-                      className="form-input form-textarea"
-                      placeholder="Optional task description"
-                      rows={3}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button 
-                      type="submit" 
-                      disabled={savingTask || !taskTitle.trim()} 
-                      className="btn btn-primary"
-                    >
-                      {savingTask ? 'Creating...' : 'Create Task'}
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={() => {
-                        setShowTaskForm(false)
-                        setTaskTitle('')
-                        setTaskDescription('')
-                      }} 
-                      className="btn btn-secondary"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <button onClick={() => setShowTaskForm(true)} className="btn btn-primary">
-                  + Add Task
-                </button>
-              )}
-            </div>
-          )}
-
-          <div className="card">
-            {tasks.length === 0 ? (
-              <div className="empty-state" style={{ padding: '40px', textAlign: 'center' }}>
-                No tasks yet. {canEdit && 'Create one to get started!'}
-              </div>
-            ) : (
-              <div className="task-list">
-                {tasks.map(task => (
-                  <div key={task.id} className="task-item">
-                    <button
-                      onClick={() => toggleTaskComplete(task)}
-                      className={`task-checkbox ${task.status === 'completed' ? 'checked' : ''}`}
-                      disabled={!canEdit}
-                      style={{ cursor: canEdit ? 'pointer' : 'not-allowed' }}
-                    />
-                    <div className="task-content" style={{ flex: 1 }}>
-                      <div className={`task-title ${task.status === 'completed' ? 'completed' : ''}`}>
-                        {task.title}
-                      </div>
-                      {task.description && (
-                        <div style={{ 
-                          fontSize: '12px', 
-                          color: 'var(--text-secondary)', 
-                          marginTop: '4px' 
-                        }}>
-                          {task.description}
-                        </div>
-                      )}
-                    </div>
-                    <span className={`task-priority priority-${task.priority || 'medium'}`}>
-                      {task.priority || 'medium'}
-                    </span>
-                  </div>
-                ))}
-              </div>
+          <div className="flex justify-between items-center mb-4">
+            <span className="text-sm text-stone-500">
+              {group.tasks.length} task{group.tasks.length !== 1 ? 's' : ''} · {completedTasks} completed
+            </span>
+            {canEdit && (
+              <Link to={`/tasks/new?group=${id}`}
+                className="px-3 py-1.5 text-sm bg-stone-900 text-white rounded hover:bg-stone-800">
+                + Add Task
+              </Link>
             )}
           </div>
+
+          {/* task list */}
+          {group.tasks.length === 0 ? (
+            <div className="text-center py-8 text-stone-400 text-sm">No tasks yet</div>
+          ) : (
+            <div className="bg-white border border-stone-200 rounded-lg">
+              {group.tasks.map(task => {
+                const dueLabel = getDueLabel(task)
+                return (
+                  <Link key={task.id} to={`/tasks/${task.id}`}
+                    className="flex items-center gap-3 px-4 py-3 border-b border-stone-100 last:border-b-0 hover:bg-stone-50">
+                    <div className={`w-4 h-4 rounded border-2 flex-shrink-0 ${
+                      task.status === 'completed' ? 'bg-stone-900 border-stone-900' : 'border-stone-300'}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-sm font-medium truncate ${
+                        task.status === 'completed' ? 'line-through text-stone-400' : ''}`}>
+                        {task.title}
+                      </div>
+                      {dueLabel && (
+                        <span className={`text-xs ${dueLabel.colour}`}>{dueLabel.text}</span>
+                      )}
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      task.priority === 'high' ? 'bg-red-50 text-red-600' :
+                      task.priority === 'medium' ? 'bg-amber-50 text-amber-600' :
+                      'bg-stone-100 text-stone-500'
+                    }`}>{task.priority}</span>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {}
+      {/* === MEMBERS TAB === */}
       {activeTab === 'members' && (
         <div>
+          <div className="flex justify-between items-center mb-4">
+            <span className="text-sm text-stone-500">{acceptedMembers.length} member{acceptedMembers.length !== 1 ? 's' : ''}</span>
+          </div>
+
+          {/* invite form - admin only */}
           {isAdmin && (
-            <form 
-              onSubmit={inviteMember} 
-              style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}
-            >
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                className="form-input"
-                placeholder="Enter email to invite"
-                style={{ flex: 1 }}
-                required
-              />
-              <button 
-                type="submit" 
-                disabled={inviting || !inviteEmail.trim()} 
-                className="btn btn-primary"
-              >
-                {inviting ? 'Inviting...' : 'Invite Member'}
+            <form onSubmit={handleInvite}
+              className="flex gap-3 mb-6 bg-stone-50 border border-stone-200 rounded-lg p-4">
+              <input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="Enter email address"
+                className="flex-1 px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
+              <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}
+                className="px-3 py-2 border border-stone-300 rounded text-sm">
+                <option value="editor">Editor</option>
+                <option value="viewer">Viewer</option>
+              </select>
+              <button type="submit" disabled={inviting}
+                className="px-4 py-2 text-sm bg-stone-900 text-white rounded disabled:opacity-50">
+                {inviting ? 'Inviting...' : 'Invite'}
               </button>
             </form>
           )}
 
-          <div className="card">
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: '600' }}>Members</h3>
-            </div>
-            {members.length === 0 ? (
-              <div className="empty-state" style={{ padding: '40px', textAlign: 'center' }}>
-                No members yet
-              </div>
-            ) : (
-              <div style={{ padding: '8px' }}>
-                {members.map(member => (
-                  <div 
-                    key={member.id} 
-                    className="member-item"
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '12px',
-                      borderBottom: '1px solid var(--border)'
-                    }}
-                  >
-                    <div>
-                      <div className="member-name" style={{ fontWeight: '500', fontSize: '14px' }}>
-                        {member.profiles?.full_name || 'Unknown User'}
-                        {member.user_id === user.id && ' (You)'}
-                      </div>
-                      <div className="member-email" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        {member.profiles?.email}
-                      </div>
-                    </div>
-                    <span 
-                      className="group-role"
-                      style={{
-                        padding: '4px 12px',
-                        background: member.role === 'admin' ? 'var(--purple-bg)' : 'var(--surface)',
-                        color: member.role === 'admin' ? 'var(--purple)' : 'var(--text-secondary)',
-                        borderRadius: '12px',
-                        fontSize: '12px',
-                        fontWeight: '500'
-                      }}
-                    >
-                      {member.role}
-                    </span>
+          {/* member list */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {acceptedMembers.map((member, i) => (
+              <div key={member.id} className="flex items-center gap-3 bg-white border border-stone-200 rounded-lg p-4">
+                <div className={`w-10 h-10 rounded-full ${getAvatarColour(i)} text-white flex items-center justify-center text-sm font-semibold`}>
+                  {getInitials(member)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">
+                    {getMemberName(member)}
+                    {member.user_id === user?.id && <span className="text-stone-400"> (You)</span>}
                   </div>
-                ))}
+                  <div className="text-xs text-stone-400">{member.profiles?.email}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isAdmin && member.user_id !== user?.id ? (
+                    <select value={member.role}
+                      onChange={(e) => handleRoleChange(member.user_id, e.target.value)}
+                      className="text-xs px-2 py-1 border border-stone-200 rounded">
+                      <option value="admin">Admin</option>
+                      <option value="editor">Editor</option>
+                      <option value="viewer">Viewer</option>
+                    </select>
+                  ) : (
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      member.role === 'admin' ? 'bg-purple-50 text-purple-600' :
+                      member.role === 'editor' ? 'bg-blue-50 text-blue-600' :
+                      'bg-stone-100 text-stone-500'
+                    }`}>{member.role.charAt(0).toUpperCase() + member.role.slice(1)}</span>
+                  )}
+                  {isAdmin && member.user_id !== user?.id && (
+                    <button onClick={() => handleRemoveMember(member.user_id, getMemberName(member))}
+                      className="text-stone-300 hover:text-red-500 text-lg">×</button>
+                  )}
+                </div>
               </div>
-            )}
+            ))}
+          </div>
+
+          {/* pending invites */}
+          {pendingMembers.length > 0 && (
+            <div className="mt-6">
+              <h4 className="text-sm font-semibold text-stone-500 mb-3">Pending Invites</h4>
+              {pendingMembers.map(member => (
+                <div key={member.id} className="flex items-center gap-3 bg-stone-50 rounded-lg p-3 mb-2">
+                  <div className="flex-1">
+                    <div className="text-sm">{member.profiles?.email || 'Unknown'}</div>
+                    <div className="text-xs text-stone-400">Invited as {member.role}</div>
+                  </div>
+                  {isAdmin && (
+                    <button onClick={() => handleRemoveMember(member.user_id, member.profiles?.email)}
+                      className="text-xs text-red-500 hover:text-red-700">Revoke</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* permissions guide */}
+          <div className="mt-8 pt-6 border-t border-stone-200">
+            <h4 className="text-sm font-semibold mb-4">Permission Levels</h4>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="p-4 bg-stone-50 rounded-lg">
+                <div className="text-sm font-semibold text-purple-600 mb-2">Admin</div>
+                <ul className="text-xs text-stone-500 space-y-1">
+                  <li>Full access to all features</li>
+                  <li>Manage members & permissions</li>
+                  <li>Delete group</li>
+                </ul>
+              </div>
+              <div className="p-4 bg-stone-50 rounded-lg">
+                <div className="text-sm font-semibold mb-2">Editor</div>
+                <ul className="text-xs text-stone-500 space-y-1">
+                  <li>Create & edit tasks</li>
+                  <li>Upload files</li>
+                  <li>Add events</li>
+                </ul>
+              </div>
+              <div className="p-4 bg-stone-50 rounded-lg">
+                <div className="text-sm font-semibold mb-2">Viewer</div>
+                <ul className="text-xs text-stone-500 space-y-1">
+                  <li>View tasks & files</li>
+                  <li>Mark tasks complete</li>
+                  <li>Add comments</li>
+                </ul>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {}
-      {activeTab === 'files' && (
+      {/* === ACTIVITY TAB === */}
+      {activeTab === 'activity' && (
         <div>
-          {canEdit && (
-            <div style={{ marginBottom: '16px' }}>
-              <label 
-                className="btn btn-primary" 
-                style={{ cursor: uploading ? 'not-allowed' : 'pointer', opacity: uploading ? 0.6 : 1 }}
-              >
-                {uploading ? 'Uploading...' : '📁 Upload File'}
-                <input
-                  type="file"
-                  onChange={uploadFile}
-                  disabled={uploading}
-                  style={{ display: 'none' }}
-                />
-              </label>
+          {group.activity.length === 0 ? (
+            <div className="text-center py-8 text-stone-400 text-sm">No activity yet</div>
+          ) : (
+            <div className="space-y-4">
+              {group.activity.map(item => (
+                <div key={item.id} className="flex gap-3">
+                  <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center text-xs font-semibold text-stone-600 flex-shrink-0">
+                    {item.profiles?.first_name?.[0] || '?'}
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm">
+                      <span className="font-medium">
+                        {item.profiles?.first_name || 'Someone'}
+                      </span>{' '}
+                      <span className="text-stone-500">{item.action_type}</span>
+                      {item.details && (
+                        <span className="text-stone-500"> — {item.details}</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-stone-400 mt-0.5">{timeAgo(item.created_at)}</div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
+        </div>
+      )}
 
-          <div className="card">
-            {files.length === 0 ? (
-              <div className="empty-state" style={{ padding: '40px', textAlign: 'center' }}>
-                No files uploaded yet. {canEdit && 'Upload one to share with your team!'}
-              </div>
-            ) : (
-              <div style={{ padding: '8px' }}>
-                {files.map(file => (
-                  <div 
-                    key={file.id} 
-                    className="file-item"
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '12px',
-                      borderBottom: '1px solid var(--border)'
-                    }}
-                  >
-                    <div style={{ flex: 1 }}>
-                      <div className="file-name" style={{ fontWeight: '500', fontSize: '14px' }}>
-                        📄 {file.file_name}
-                      </div>
-                      <div className="file-size" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                        {formatFileSize(file.file_size)} • Uploaded {new Date(file.created_at).toLocaleDateString()}
-                      </div>
-                    </div>
-                    {canEdit && (
-                      <button
-                        onClick={() => deleteFile(file)}
-                        style={{
-                          padding: '6px 12px',
-                          background: 'var(--urgent-bg)',
-                          color: 'var(--urgent)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '14px'
-                        }}
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+      {/* === SETTINGS TAB (admin only) === */}
+      {activeTab === 'settings' && isAdmin && (
+        <div className="max-w-lg">
+          <form onSubmit={handleSaveSettings} className="space-y-4 mb-8">
+            <div>
+              <label className="block text-sm font-medium mb-1">Group Name</label>
+              <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)}
+                className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Module</label>
+              <input type="text" value={editModule} onChange={(e) => setEditModule(e.target.value)}
+                placeholder="e.g. CS2001 Database Systems"
+                className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Description</label>
+              <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
+            </div>
+            <button type="submit" disabled={saving}
+              className="px-4 py-2 text-sm bg-stone-900 text-white rounded disabled:opacity-50">
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </form>
+
+          <div className="border-t border-stone-200 pt-6">
+            <h4 className="text-sm font-semibold text-red-600 mb-3">Danger Zone</h4>
+            <button onClick={handleDeleteGroup}
+              className="px-4 py-2 text-sm text-red-600 border border-red-200 rounded hover:bg-red-50">
+              Delete Group
+            </button>
+            <p className="text-xs text-stone-400 mt-2">This cannot be undone. Tasks will be unlinked but not deleted.</p>
           </div>
         </div>
       )}
     </div>
   )
 }
+
+export default GroupDetail

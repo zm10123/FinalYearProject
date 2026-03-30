@@ -192,11 +192,11 @@ function TaskDetail() {
     if (!err) navigate('/tasks')
   }
 
-  async function handleDelete() {
-    if (!window.confirm('Delete this task permanently?')) return
-    const { error: err } = await deleteTask(id)
-    if (!err) navigate('/tasks')
-  }
+ async function handleDelete() {
+  if (!window.confirm('Delete this task? It will be removed from your task list but any scores will still count towards your grades.')) return
+  const { error: err } = await deleteTask(id)
+  if (!err) navigate('/tasks')
+}
 
   async function handleSaveScore() {
     if (!scoreAchieved || !scoreTotal) return

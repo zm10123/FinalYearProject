@@ -3,7 +3,8 @@ import { supabase } from './supabaseClient'
 export async function getTasks(filters = {}) {
   let query = supabase
     .from('tasks')
-    .select('*, modules(id, name, code, courses(id, name)), subtasks(id, is_completed)')
+    .select('*, modules(id, name, code, courses(id, name))')
+    .is('deleted_at', null)  // hide soft-deleted tasks
     .order('due_date', { ascending: true })
 
   if (filters.status) {
@@ -32,6 +33,7 @@ export async function getAllTasks() {
   const { data, error } = await supabase
     .from('tasks')
     .select('*, modules(id, name, code, courses(id, name))')
+    .is('deleted_at', null)
     .order('due_date', { ascending: true })
 
   return { data, error }
@@ -66,16 +68,6 @@ export async function getTaskById(id) {
   return { task, error: null }
 }
 
-export async function getScoredTasks() {
-  const { data, error } = await supabase
-    .from('tasks')
-    .select('*, modules(id, name, code, courses(id, name))')
-    .not('score_achieved', 'is', null)
-    .not('score_total', 'is', null)
-    .order('module_id', { ascending: true })
-
-  return { data, error }
-}
 
 export async function createTask(taskData) {
   const { data: { user } } = await supabase.auth.getUser()
@@ -101,12 +93,15 @@ export async function updateTask(id, updates) {
 }
 
 export async function deleteTask(id) {
-  const { error } = await supabase
+  // soft delete - set deleted_at instead of actually removing the row
+  const { data, error } = await supabase
     .from('tasks')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', id)
+    .select()
+    .single()
 
-  return { error }
+  return { data, error }
 }
 
 
@@ -169,6 +164,7 @@ export async function getArchivedTasks() {
     .from('tasks')
     .select('*, modules(id, name, code, courses(id, name))')
     .eq('status', 'archived')
+    .is('deleted_at', null)  // archived but not soft-deleted
     .order('updated_at', { ascending: false })
 
   return { data, error }
@@ -270,4 +266,17 @@ export async function removeDependency(id) {
     .eq('id', id)
 
   return { error }
+}
+
+// gets ALL tasks with scores, including archived and soft-deleted
+// used for grade calculations so no academic data is ever lost
+export async function getScoredTasks() {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*, modules(id, name, code, courses(id, name))')
+    .not('score_achieved', 'is', null)
+    .not('score_total', 'is', null)
+    .order('module_id', { ascending: true })
+
+  return { data, error }
 }

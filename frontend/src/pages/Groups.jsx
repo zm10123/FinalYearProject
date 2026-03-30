@@ -1,205 +1,201 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { supabase } from '../services/supabaseClient'
-import { useAuth } from '../context/AuthContext'
+import { Link, useNavigate } from 'react-router-dom'
+import { getGroups, createGroup, acceptInvite, declineInvite } from '../services/groupService'
 
-export default function Groups() {
-  const { user } = useAuth()
+function Groups() {
+  const navigate = useNavigate()
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState(null)
+  const [showCreate, setShowCreate] = useState(false)
 
-  // Form fields
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
+  // create form
+  const [newName, setNewName] = useState('')
+  const [newDescription, setNewDescription] = useState('')
+  const [newModule, setNewModule] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    if (user) fetchGroups()
-  }, [user])
+    loadGroups()
+  }, [])
 
-  const fetchGroups = async () => {
+  async function loadGroups() {
     setLoading(true)
-    
-    // Get groups where user is a member
-    const { data: memberships, error } = await supabase
-      .from('group_members')
-      .select(`
-        group_id,
-        role,
-        groups (
-          id,
-          name,
-          description,
-          created_at
-        )
-      `)
-      .eq('user_id', user.id)
-      .eq('status', 'active')
-
-    if (error) {
-      console.error('Error fetching groups:', error)
-      setLoading(false)
-      return
-    }
-
-    
-    const groupsData = (memberships || [])
-      .filter(m => m.groups) 
-      .map(m => ({
-        ...m.groups,
-        role: m.role
-      }))
-
-    setGroups(groupsData)
+    const { data, error: err } = await getGroups()
+    if (data) setGroups(data)
+    if (err) setError(err.message)
     setLoading(false)
   }
 
-  const handleSubmit = async (e) => {
+  async function handleCreate(e) {
     e.preventDefault()
-    setError(null)
-    setSaving(true)
-
-    console.log('Creating group:', { name, description }) // Debug
-
-    // Create the group
-    const { data: groupData, error: groupError } = await supabase
-      .from('groups')
-      .insert([{
-        name: name.trim(),
-        description: description.trim() || null,
-        created_by: user.id
-      }])
-      .select()
-
-    console.log('Group create response:', { groupData, groupError }) // Debug
-
-    if (groupError) {
-      console.error('Error creating group:', groupError)
-      setError(groupError.message)
-      setSaving(false)
+    if (!newName.trim()) {
+      setError('Group name is required')
       return
     }
+    setCreating(true)
+    setError('')
 
-    
-    if (groupData && groupData.length > 0) {
-      const newGroup = groupData[0]
-      
-      // Check if member was added by trigger
-      const { data: memberCheck } = await supabase
-        .from('group_members')
-        .select('id')
-        .eq('group_id', newGroup.id)
-        .eq('user_id', user.id)
+    const { data, error: err } = await createGroup(
+      newName.trim(),
+      newDescription.trim(),
+      newModule.trim()
+    )
 
-      
-      if (!memberCheck || memberCheck.length === 0) {
-        await supabase
-          .from('group_members')
-          .insert([{
-            group_id: newGroup.id,
-            user_id: user.id,
-            role: 'admin',
-            status: 'active'
-          }])
-      }
-
-      // Reset form and refresh
-      setName('')
-      setDescription('')
-      setShowForm(false)
-      fetchGroups()
+    if (err) {
+      setError(err.message)
+      setCreating(false)
+    } else {
+      setShowCreate(false)
+      setNewName('')
+      setNewDescription('')
+      setNewModule('')
+      setCreating(false)
+      // go straight to the new group
+      navigate(`/groups/${data.id}`)
     }
-    
-    setSaving(false)
   }
 
-  if (loading) return <div>Loading...</div>
+  async function handleAccept(groupId) {
+    const { error: err } = await acceptInvite(groupId)
+    if (!err) await loadGroups()
+  }
+
+  async function handleDecline(groupId) {
+    const { error: err } = await declineInvite(groupId)
+    if (!err) await loadGroups()
+  }
+
+  // split into accepted groups and pending invites
+  const myGroups = groups.filter(g => g.memberStatus === 'accepted')
+  const pendingInvites = groups.filter(g => g.memberStatus === 'pending')
+
+  if (loading) return <div className="p-8 text-stone-400">Loading groups...</div>
 
   return (
     <div>
-      <div className="page-header">
+      <div className="flex justify-between items-start mb-6">
         <div>
-          <h1 className="page-title">Groups</h1>
-          <p className="page-subtitle">{groups.length} groups</p>
+          <h1 className="text-2xl font-bold">Groups</h1>
+          <p className="text-stone-500 text-sm">Manage your project teams</p>
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="btn btn-primary"
-        >
-          {showForm ? 'Cancel' : '+ New Group'}
+        <button onClick={() => setShowCreate(true)}
+          className="px-4 py-2 bg-stone-900 text-white rounded text-sm font-medium hover:bg-stone-800">
+          + Create Group
         </button>
       </div>
 
-      {error && <div className="error-message mb-4">{error}</div>}
+      {error && (
+        <div className="bg-red-50 text-red-600 text-sm p-3 rounded mb-4">{error}</div>
+      )}
 
-      {}
-      {showForm && (
-        <div className="card mb-6">
-          <div className="card-body">
-            <h2 style={{ fontWeight: '600', marginBottom: '16px' }}>Create Group</h2>
-            <form onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label className="form-label">Group Name *</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="form-input"
-                  placeholder="e.g. Database Project Team"
-                  required
-                />
+      {/* pending invites */}
+      {pendingInvites.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold text-stone-500 mb-3">Pending Invites</h3>
+          <div className="space-y-3">
+            {pendingInvites.map(group => (
+              <div key={group.id} className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center gap-4">
+                <div className="flex-1">
+                  <div className="text-sm font-semibold">{group.name}</div>
+                  {group.module && (
+                    <div className="text-xs text-stone-500 mt-0.5">{group.module}</div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => handleAccept(group.id)}
+                    className="px-3 py-1.5 text-xs bg-stone-900 text-white rounded hover:bg-stone-800">
+                    Accept
+                  </button>
+                  <button onClick={() => handleDecline(group.id)}
+                    className="px-3 py-1.5 text-xs border border-stone-300 rounded hover:bg-stone-50">
+                    Decline
+                  </button>
+                </div>
               </div>
-
-              <div className="form-group">
-                <label className="form-label">Description</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="form-input form-textarea"
-                  placeholder="What is this group for?"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={saving || !name.trim()}
-                className="btn btn-primary"
-              >
-                {saving ? 'Creating...' : 'Create Group'}
-              </button>
-            </form>
+            ))}
           </div>
         </div>
       )}
 
-      {}
-      {groups.length === 0 ? (
-        <div className="card">
-          <div className="empty-state">
-            No groups yet. Create one to collaborate with others!
-          </div>
+      {/* group list */}
+      {myGroups.length === 0 ? (
+        <div className="text-center py-12 text-stone-400">
+          <p className="text-lg mb-2">No groups yet</p>
+          <p className="text-sm">Create a group to collaborate with classmates</p>
         </div>
       ) : (
-        <div className="groups-grid">
-          {groups.map((group) => (
-            <Link
-              key={group.id}
-              to={`/groups/${group.id}`}
-              className="group-card"
-            >
-              <div className="group-card-header">
-                <span className="group-name">{group.name}</span>
-                <span className="group-role">{group.role}</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {myGroups.map(group => (
+            <Link key={group.id} to={`/groups/${group.id}`}
+              className="bg-white border border-stone-200 rounded-lg p-5 hover:border-stone-300 transition-colors">
+              <div className="flex justify-between items-start mb-2">
+                <h3 className="text-sm font-semibold">{group.name}</h3>
+                <span className={`text-xs px-2 py-0.5 rounded ${
+                  group.userRole === 'admin' ? 'bg-purple-50 text-purple-600' :
+                  group.userRole === 'editor' ? 'bg-blue-50 text-blue-600' :
+                  'bg-stone-100 text-stone-500'
+                }`}>
+                  {group.userRole.charAt(0).toUpperCase() + group.userRole.slice(1)}
+                </span>
               </div>
-              <p className="group-desc">
-                {group.description || 'No description'}
-              </p>
+              {group.module && (
+                <div className="text-xs text-stone-500 mb-2">{group.module}</div>
+              )}
+              {group.description && (
+                <p className="text-xs text-stone-400 line-clamp-2">{group.description}</p>
+              )}
             </Link>
           ))}
+        </div>
+      )}
+
+      {/* create group modal */}
+      {showCreate && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowCreate(false) }}>
+          <div className="bg-white rounded-lg w-full max-w-md mx-4">
+            <div className="flex justify-between items-center px-6 py-4 border-b border-stone-200">
+              <h3 className="text-lg font-semibold">Create New Group</h3>
+              <button onClick={() => setShowCreate(false)}
+                className="text-stone-400 hover:text-stone-600 text-xl">×</button>
+            </div>
+            <form onSubmit={handleCreate} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Group Name</label>
+                <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Database Project Team"
+                  className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Module (optional)</label>
+                <input type="text" value={newModule} onChange={(e) => setNewModule(e.target.value)}
+                  placeholder="e.g. CS2001 Database Systems"
+                  className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Description (optional)</label>
+                <textarea value={newDescription} onChange={(e) => setNewDescription(e.target.value)}
+                  placeholder="What is this group for?"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setShowCreate(false)}
+                  className="px-4 py-2 text-sm border border-stone-300 rounded hover:bg-stone-50">
+                  Cancel
+                </button>
+                <button type="submit" disabled={creating}
+                  className="px-4 py-2 text-sm bg-stone-900 text-white rounded hover:bg-stone-800 disabled:opacity-50">
+                  {creating ? 'Creating...' : 'Create Group'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
   )
 }
+
+export default Groups
