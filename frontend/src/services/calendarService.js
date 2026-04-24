@@ -1,16 +1,31 @@
 import { supabase } from './supabaseClient'
 
-// --- calendar events (lectures, tutorials, work, etc) ---
+//  calendar events (lectures, tutorials, work, etc) 
 
 export async function getCalendarEvents(startDate, endDate) {
+
     const { data, error } = await supabase
         .from('calendar_events')
         .select('*')
-        .gte('start_time', startDate)
         .lte('start_time', endDate)
         .order('start_time', { ascending: true })
 
-    return { data, error }
+    if (error) return { data: null, error }
+
+    // filter non-recurring events that ended before the visible start
+    const filtered = (data || []).filter(e => {
+        const recurrence = e.recurrence || 'none'
+        if (recurrence === 'none') {
+            // keep if start_time is within visible range
+            return e.start_time >= startDate
+        }
+        // recurring - keep if the window overlaps the visible range
+        // window ends at recurrence_end_date (or infinity if null)
+        if (!e.recurrence_end_date) return true
+        return e.recurrence_end_date >= startDate.split('T')[0]
+    })
+
+    return { data: filtered, error: null }
 }
 
 export async function createCalendarEvent(eventData) {
@@ -45,7 +60,7 @@ export async function deleteCalendarEvent(id) {
     return { error }
 }
 
-// --- floating notes ---
+//  floating notes 
 
 export async function getFloatingNotes(groupId) {
     let query = supabase

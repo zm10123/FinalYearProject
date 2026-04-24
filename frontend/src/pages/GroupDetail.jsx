@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -6,6 +6,10 @@ import {
   inviteMember, updateMemberRole, removeMember, leaveGroup,
   addTaskToGroup
 } from '../services/groupService'
+import {
+  getGroupFiles, uploadFile, deleteFile,
+  getFileUrl, logFileAccess, formatFileSize
+} from '../services/fileService'
 
 function GroupDetail() {
   const { id } = useParams()
@@ -36,6 +40,11 @@ function GroupDetail() {
   const [editModule, setEditModule] = useState('')
   const [saving, setSaving] = useState(false)
 
+  // files 
+  const [files, setFiles] = useState([])
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef(null)
+
   useEffect(() => {
     loadGroup()
   }, [id])
@@ -52,6 +61,44 @@ function GroupDetail() {
       setEditModule(data.module || '')
     }
     setLoading(false)
+    loadFiles()
+  }
+
+  // file actions 
+
+  async function loadFiles() {
+    const { data } = await getGroupFiles(id)
+    if (data) setFiles(data)
+  }
+
+  async function handleUpload(file) {
+    setUploading(true)
+    setError('')
+    const { error: err } = await uploadFile(id, file)
+    if (err) {
+      setError(err.message)
+    } else {
+      await loadFiles()
+    }
+    setUploading(false)
+  }
+
+  async function handleDownload(file) {
+    await logFileAccess(file.id)
+    const { url, error: err } = await getFileUrl(file.storage_path)
+    if (err) {
+      setError(err.message)
+    } else {
+      window.open(url, '_blank')
+    }
+  }
+
+  async function handleDeleteFile(fileId, storagePath) {
+    if (!window.confirm('Delete this file?')) return
+    const { error: err } = await deleteFile(fileId, storagePath)
+    if (!err) {
+      setFiles(files.filter(f => f.id !== fileId))
+    }
   }
 
   // figure out the current user's role in this group
@@ -60,7 +107,7 @@ function GroupDetail() {
   const isAdmin = userRole === 'admin'
   const canEdit = isAdmin || userRole === 'editor'
 
-  // --- member actions ---
+  //  member actions 
 
   async function handleInvite(e) {
     e.preventDefault()
@@ -103,7 +150,7 @@ function GroupDetail() {
     if (!err) navigate('/groups')
   }
 
-  // --- task actions ---
+  //  task actions 
 
   async function handleAddTask(e) {
     e.preventDefault()
@@ -131,7 +178,7 @@ function GroupDetail() {
     setAddingTask(false)
   }
 
-  // --- settings actions ---
+  //  settings actions
 
   async function handleSaveSettings(e) {
     e.preventDefault()
@@ -158,7 +205,7 @@ function GroupDetail() {
     if (!err) navigate('/groups')
   }
 
-  // --- helpers ---
+  //  helpers 
 
   function formatDate(dateStr) {
     if (!dateStr) return ''
@@ -243,19 +290,18 @@ function GroupDetail() {
 
       {/* tabs */}
       <div className="flex gap-1 border-b border-stone-200 mb-6">
-        {['tasks', 'members', 'activity', ...(isAdmin ? ['settings'] : [])].map(tab => (
+        {['tasks', 'members', 'files', 'activity', ...(isAdmin ? ['settings'] : [])].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              activeTab === tab
-                ? 'border-stone-900 text-stone-900'
-                : 'border-transparent text-stone-400 hover:text-stone-600'
-            }`}>
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${activeTab === tab
+              ? 'border-stone-900 text-stone-900'
+              : 'border-transparent text-stone-400 hover:text-stone-600'
+              }`}>
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
 
-      {/* === TASKS TAB === */}
+      {/* TASKS TAB  */}
       {activeTab === 'tasks' && (
         <div>
           <div className="flex justify-between items-center mb-4">
@@ -280,22 +326,19 @@ function GroupDetail() {
                 return (
                   <Link key={task.id} to={`/tasks/${task.id}`}
                     className="flex items-center gap-3 px-4 py-3 border-b border-stone-100 last:border-b-0 hover:bg-stone-50">
-                    <div className={`w-4 h-4 rounded border-2 flex-shrink-0 ${
-                      task.status === 'completed' ? 'bg-stone-900 border-stone-900' : 'border-stone-300'}`} />
+                    <div className={`w-4 h-4 rounded border-2 flex-shrink-0 ${task.status === 'completed' ? 'bg-stone-900 border-stone-900' : 'border-stone-300'}`} />
                     <div className="flex-1 min-w-0">
-                      <div className={`text-sm font-medium truncate ${
-                        task.status === 'completed' ? 'line-through text-stone-400' : ''}`}>
+                      <div className={`text-sm font-medium truncate ${task.status === 'completed' ? 'line-through text-stone-400' : ''}`}>
                         {task.title}
                       </div>
                       {dueLabel && (
                         <span className={`text-xs ${dueLabel.colour}`}>{dueLabel.text}</span>
                       )}
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded ${
-                      task.priority === 'high' ? 'bg-red-50 text-red-600' :
+                    <span className={`text-xs px-2 py-0.5 rounded ${task.priority === 'high' ? 'bg-red-50 text-red-600' :
                       task.priority === 'medium' ? 'bg-amber-50 text-amber-600' :
-                      'bg-stone-100 text-stone-500'
-                    }`}>{task.priority}</span>
+                        'bg-stone-100 text-stone-500'
+                      }`}>{task.priority}</span>
                   </Link>
                 )
               })}
@@ -304,7 +347,7 @@ function GroupDetail() {
         </div>
       )}
 
-      {/* === MEMBERS TAB === */}
+      {/*  MEMBERS TAB  */}
       {activeTab === 'members' && (
         <div>
           <div className="flex justify-between items-center mb-4">
@@ -354,11 +397,10 @@ function GroupDetail() {
                       <option value="viewer">Viewer</option>
                     </select>
                   ) : (
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      member.role === 'admin' ? 'bg-purple-50 text-purple-600' :
+                    <span className={`text-xs px-2 py-1 rounded ${member.role === 'admin' ? 'bg-purple-50 text-purple-600' :
                       member.role === 'editor' ? 'bg-blue-50 text-blue-600' :
-                      'bg-stone-100 text-stone-500'
-                    }`}>{member.role.charAt(0).toUpperCase() + member.role.slice(1)}</span>
+                        'bg-stone-100 text-stone-500'
+                      }`}>{member.role.charAt(0).toUpperCase() + member.role.slice(1)}</span>
                   )}
                   {isAdmin && member.user_id !== user?.id && (
                     <button onClick={() => handleRemoveMember(member.user_id, getMemberName(member))}
@@ -420,8 +462,61 @@ function GroupDetail() {
           </div>
         </div>
       )}
+      
+      {/*  FILES TAB  */}
+      {activeTab === 'files' && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <span className="text-sm text-stone-500">
+              {files.length} file{files.length !== 1 ? 's' : ''}
+            </span>
+            {canEdit && (
+              <div>
+                <input type="file" ref={fileInputRef} className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files[0]
+                    if (file) handleUpload(file)
+                  }} />
+                <button onClick={() => fileInputRef.current.click()} disabled={uploading}
+                  className="px-3 py-1.5 text-sm bg-stone-900 text-white rounded hover:bg-stone-800 disabled:opacity-50">
+                  {uploading ? 'Uploading...' : 'Upload File'}
+                </button>
+              </div>
+            )}
+          </div>
 
-      {/* === ACTIVITY TAB === */}
+          {files.length === 0 ? (
+            <div className="text-center py-8 text-stone-400 text-sm">No files yet</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {files.map(file => (
+                <div key={file.id} className="bg-white border border-stone-200 rounded-lg p-4 hover:border-stone-300">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="w-10 h-12 bg-stone-100 border border-stone-200 rounded flex items-center justify-center text-xs font-semibold text-stone-400">
+                      {file.mime_type?.split('/')[1]?.toUpperCase().slice(0, 4) || 'FILE'}
+                    </div>
+                    {isAdmin && (
+                      <button onClick={() => handleDeleteFile(file.id, file.storage_path)}
+                        className="text-stone-300 hover:text-red-500 text-sm">×</button>
+                    )}
+                  </div>
+                  <div className="text-sm font-medium truncate mb-1">{file.file_name}</div>
+                  <div className="text-xs text-stone-400 mb-3">
+                    {formatFileSize(file.file_size)}
+                    {file.profiles && ` · ${file.profiles.first_name || file.profiles.email}`}
+                  </div>
+                  <button onClick={() => handleDownload(file)}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                    Download
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      
+      {/*  ACTIVITY TAB  */}
       {activeTab === 'activity' && (
         <div>
           {group.activity.length === 0 ? (
@@ -452,7 +547,7 @@ function GroupDetail() {
         </div>
       )}
 
-      {/* === SETTINGS TAB (admin only) === */}
+      {/*  SETTINGS TAB (admin only)  */}
       {activeTab === 'settings' && isAdmin && (
         <div className="max-w-lg">
           <form onSubmit={handleSaveSettings} className="space-y-4 mb-8">

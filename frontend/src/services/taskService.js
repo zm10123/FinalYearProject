@@ -4,7 +4,6 @@ export async function getTasks(filters = {}) {
   let query = supabase
     .from('tasks')
     .select('*, modules(id, name, code, courses(id, name))')
-    .is('deleted_at', null)  // hide soft-deleted tasks
     .order('due_date', { ascending: true })
 
   if (filters.status) {
@@ -20,7 +19,7 @@ export async function getTasks(filters = {}) {
     query = query.ilike('title', `%${filters.search}%`)
   }
 
-  // dont show archived unless specifically asked
+  // dont show archived on main tasks list unless filter explicitly asks
   if (!filters.status) {
     query = query.neq('status', 'archived')
   }
@@ -33,14 +32,12 @@ export async function getAllTasks() {
   const { data, error } = await supabase
     .from('tasks')
     .select('*, modules(id, name, code, courses(id, name))')
-    .is('deleted_at', null)
     .order('due_date', { ascending: true })
 
   return { data, error }
 }
 
 export async function getTaskById(id) {
-  
   const { data: task, error: taskError } = await supabase
     .from('tasks')
     .select(`
@@ -54,14 +51,12 @@ export async function getTaskById(id) {
 
   if (taskError) return { task: null, error: taskError }
 
-  // sort subtasks by position and notes by newest first
   if (task.subtasks) {
     task.subtasks.sort((a, b) => (a.position || 0) - (b.position || 0))
   }
   if (task.task_notes) {
     task.task_notes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
   }
-  // rename task_notes to just notes for the frontend
   task.notes = task.task_notes || []
   delete task.task_notes
 
@@ -92,23 +87,21 @@ export async function updateTask(id, updates) {
   return { data, error }
 }
 
+// Delete
+// the score contribution to grades and predictions is lost
 export async function deleteTask(id) {
-  // soft delete - set deleted_at instead of actually removing the row
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('tasks')
-    .update({ deleted_at: new Date().toISOString() })
+    .delete()
     .eq('id', id)
-    .select()
-    .single()
 
-  return { data, error }
+  return { error }
 }
 
 
 export async function completeTask(taskId) {
   const { data: { user } } = await supabase.auth.getUser()
 
-  // check dependencies first
   const { data: deps } = await supabase
     .from('task_dependencies')
     .select('depends_on_id, tasks!task_dependencies_depends_on_id_fkey(status)')
@@ -155,16 +148,23 @@ export async function getCompletionStatus(taskId) {
   return { completed: data && data.length > 0, error }
 }
 
+// archive keeps the task and its score but hides it from the main task list
+// archived tasks still count towards grades and predictions
 export async function archiveTask(id) {
   return updateTask(id, { status: 'archived' })
 }
 
+// restore an archived task back to pending
+export async function unarchiveTask(id) {
+  return updateTask(id, { status: 'pending' })
+}
+
+// get all archived tasks
 export async function getArchivedTasks() {
   const { data, error } = await supabase
     .from('tasks')
     .select('*, modules(id, name, code, courses(id, name))')
     .eq('status', 'archived')
-    .is('deleted_at', null)  // archived but not soft-deleted
     .order('updated_at', { ascending: false })
 
   return { data, error }
@@ -268,8 +268,8 @@ export async function removeDependency(id) {
   return { error }
 }
 
-// gets ALL tasks with scores, including archived and soft-deleted
-// used for grade calculations so no academic data is ever lost
+// gets all scored tasks including archived
+// used for grade calculations across the whole app
 export async function getScoredTasks() {
   const { data, error } = await supabase
     .from('tasks')

@@ -21,6 +21,8 @@ function Calendar() {
   const [eventEndTime, setEventEndTime] = useState('10:00')
   const [eventLocation, setEventLocation] = useState('')
   const [addingEvent, setAddingEvent] = useState(false)
+  const [eventRecurrence, setEventRecurrence] = useState('none')
+  const [eventRecurrenceEnd, setEventRecurrenceEnd] = useState('')
 
   // add note form
   const [showAddNote, setShowAddNote] = useState(false)
@@ -99,6 +101,8 @@ function Calendar() {
       start_time: startTime.toISOString(),
       end_time: endTime.toISOString(),
       location: eventLocation.trim() || null,
+      recurrence: eventRecurrence,
+      recurrence_end_date: eventRecurrence !== 'none' ? (eventRecurrenceEnd || null) : null,
     })
 
     if (err) {
@@ -107,6 +111,8 @@ function Calendar() {
       setEventTitle('')
       setEventDate('')
       setEventLocation('')
+      setEventRecurrence('none')
+      setEventRecurrenceEnd('')
       setShowAddEvent(false)
       await loadCalendarData()
     }
@@ -146,6 +152,12 @@ function Calendar() {
   }
 
   async function handleDeleteEvent(eventId) {
+    const evt = events.find(e => e.id === eventId)
+    const confirmMsg = evt?.recurrence && evt.recurrence !== 'none'
+      ? `Delete the entire "${evt.title}" series? All occurrences will be removed.`
+      : `Delete this event?`
+    if (!window.confirm(confirmMsg)) return
+
     const { error: err } = await deleteCalendarEvent(eventId)
     if (!err) {
       setEvents(events.filter(e => e.id !== eventId))
@@ -208,11 +220,68 @@ function Calendar() {
   }
 
   // get events for a specific date
+  // returns events occurring on a given date
+  // expands recurring events into virtual instances
   function getEventsForDate(date) {
-    return events.filter(e => {
+    const result = []
+
+    events.forEach(e => {
       const start = new Date(e.start_time)
-      return start.toDateString() === date.toDateString()
+      const recurrence = e.recurrence || 'none'
+
+      // non-recurring - just check if the date matches
+      if (recurrence === 'none') {
+        if (start.toDateString() === date.toDateString()) {
+          result.push(e)
+        }
+        return
+      }
+
+      // recurring - check if this date falls within the recurrence window
+      // and matches the recurrence pattern
+      const endCap = e.recurrence_end_date
+        ? new Date(e.recurrence_end_date)
+        : null
+
+      // date must be on or after the original start date
+      if (date < new Date(start.toDateString())) return
+
+      // date must be on or before the recurrence end (if set)
+      if (endCap && date > endCap) return
+
+      // match the pattern
+      const dayDiff = Math.floor((date - new Date(start.toDateString())) / 86400000)
+
+      let matches = false
+      if (recurrence === 'daily') {
+        matches = dayDiff >= 0
+      } else if (recurrence === 'weekly') {
+        matches = dayDiff >= 0 && dayDiff % 7 === 0
+      } else if (recurrence === 'monthly') {
+        // same day of month
+        matches = date.getDate() === start.getDate() &&
+          (date.getFullYear() > start.getFullYear() ||
+            (date.getFullYear() === start.getFullYear() && date.getMonth() >= start.getMonth()))
+      }
+
+      if (matches) {
+        // return a synthesized instance so the view renders it
+        // keep the id so clicking still works, but override start_time with this date
+        const instanceStart = new Date(date)
+        instanceStart.setHours(start.getHours(), start.getMinutes(), 0, 0)
+        const duration = new Date(e.end_time) - new Date(e.start_time)
+        const instanceEnd = new Date(instanceStart.getTime() + duration)
+
+        result.push({
+          ...e,
+          start_time: instanceStart.toISOString(),
+          end_time: instanceEnd.toISOString(),
+          _isRecurringInstance: true,
+        })
+      }
     })
+
+    return result
   }
 
   // get floating notes for a date
@@ -328,19 +397,19 @@ function Calendar() {
 
                   return (
                     <div key={i}
-                      className={`min-h-[100px] border-b border-r border-stone-100 p-1.5 ${
-                        !day.current ? 'bg-stone-50 opacity-50' : load
-                      }`}>
-                      <div className={`text-xs font-medium mb-1 ${
-                        isToday ? 'w-6 h-6 bg-stone-900 text-white rounded-full flex items-center justify-center' : 'text-stone-600 px-1'
-                      }`}>
+                      className={`min-h-[100px] border-b border-r border-stone-100 p-1.5 ${!day.current ? 'bg-stone-50 opacity-50' : load
+                        }`}>
+                      <div className={`text-xs font-medium mb-1 ${isToday ? 'w-6 h-6 bg-stone-900 text-white rounded-full flex items-center justify-center' : 'text-stone-600 px-1'
+                        }`}>
                         {day.date.getDate()}
                       </div>
 
                       {/* events */}
                       {dayEvents.slice(0, 2).map(evt => (
-                        <div key={evt.id}
-                          className={`text-xs px-1.5 py-0.5 rounded mb-0.5 truncate border-l-2 ${getEventColour(evt.event_type)}`}>
+                        <div key={`${evt.id}-${evt.start_time}`}
+                          onClick={(e) => { e.stopPropagation(); handleDeleteEvent(evt.id) }}
+                          className={`text-xs px-1.5 py-0.5 rounded mb-0.5 truncate border-l-2 cursor-pointer hover:opacity-70 ${getEventColour(evt.event_type)}`}
+                          title="Click to delete">
                           {evt.title}
                         </div>
                       ))}
@@ -351,12 +420,11 @@ function Calendar() {
                         const isSoft = task.deadline_type === 'soft'
                         return (
                           <Link key={task.id} to={`/tasks/${task.id}`}
-                            className={`block text-xs px-1.5 py-0.5 rounded mb-0.5 truncate border-l-2 ${
-                              task.status === 'completed' ? 'bg-stone-100 text-stone-400 border-stone-300' :
+                            className={`block text-xs px-1.5 py-0.5 rounded mb-0.5 truncate border-l-2 ${task.status === 'completed' ? 'bg-stone-100 text-stone-400 border-stone-300' :
                               isOverdue ? 'bg-red-50 text-red-700 border-red-400' :
-                              isSoft ? 'bg-amber-50 text-amber-600 border-amber-300' :
-                              'bg-stone-100 text-stone-700 border-stone-400'
-                            }`}>
+                                isSoft ? 'bg-amber-50 text-amber-600 border-amber-300' :
+                                  'bg-stone-100 text-stone-700 border-stone-400'
+                              }`}>
                             {task.title}
                           </Link>
                         )
@@ -365,7 +433,12 @@ function Calendar() {
                       {/* floating notes */}
                       {dayNotes.slice(0, 1).map(note => (
                         <div key={note.id}
-                          className={`text-xs px-1.5 py-0.5 rounded mb-0.5 truncate ${getNoteColourClass(note.colour)}`}>
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (window.confirm(`Delete this note?`)) handleDeleteNote(note.id)
+                          }}
+                          className={`text-xs px-1.5 py-0.5 rounded mb-0.5 truncate cursor-pointer hover:opacity-70 ${getNoteColourClass(note.colour)}`}
+                          title="Click to delete">
                           📌 {note.content}
                         </div>
                       ))}
@@ -433,11 +506,10 @@ function Calendar() {
                         ))}
                         {dayTasks.map(task => (
                           <Link key={task.id} to={`/tasks/${task.id}`}
-                            className={`block text-xs px-1.5 py-1 rounded mb-0.5 ${
-                              task.status === 'completed' ? 'bg-stone-100 text-stone-400' :
+                            className={`block text-xs px-1.5 py-1 rounded mb-0.5 ${task.status === 'completed' ? 'bg-stone-100 text-stone-400' :
                               task.priority === 'high' ? 'bg-red-50 text-red-700' :
-                              'bg-stone-100 text-stone-600'
-                            }`}>
+                                'bg-stone-100 text-stone-600'
+                              }`}>
                             <div className="font-medium truncate">{task.title}</div>
                           </Link>
                         ))}
@@ -517,7 +589,7 @@ function Calendar() {
           {/* floating notes list */}
           <div className="bg-white border border-stone-200 rounded-lg p-4">
             <div className="flex justify-between items-center mb-3">
-              <h3 className="text-sm font-semibold">Floating Notes</h3>
+              <h3 className="text-sm font-semibold">Sticky Notes</h3>
               <button onClick={() => setShowAddNote(true)} className="text-xs text-blue-600 hover:text-blue-800">+ Add</button>
             </div>
             {notes.length === 0 ? (
@@ -574,6 +646,7 @@ function Calendar() {
                 <div>
                   <label className="block text-sm font-medium mb-1">Date</label>
                   <input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
                     className="w-full px-3 py-2 border border-stone-300 rounded text-sm" />
                 </div>
               </div>
@@ -589,6 +662,29 @@ function Calendar() {
                     className="w-full px-3 py-2 border border-stone-300 rounded text-sm" />
                 </div>
               </div>
+
+              {/* recurrence */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Repeats</label>
+                  <select value={eventRecurrence} onChange={(e) => setEventRecurrence(e.target.value)}
+                    className="w-full px-3 py-2 border border-stone-300 rounded text-sm">
+                    <option value="none">Does not repeat</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+                {eventRecurrence !== 'none' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Repeat until</label>
+                    <input type="date" value={eventRecurrenceEnd} onChange={(e) => setEventRecurrenceEnd(e.target.value)}
+                      min={eventDate || new Date().toISOString().split('T')[0]}
+                      className="w-full px-3 py-2 border border-stone-300 rounded text-sm" />
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-medium mb-1">Location (optional)</label>
                 <input type="text" value={eventLocation} onChange={(e) => setEventLocation(e.target.value)}
@@ -627,6 +723,7 @@ function Calendar() {
               <div>
                 <label className="block text-sm font-medium mb-1">Date</label>
                 <input type="date" value={noteDate} onChange={(e) => setNoteDate(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
                   className="w-full px-3 py-2 border border-stone-300 rounded text-sm" />
               </div>
               <div>
@@ -634,9 +731,8 @@ function Calendar() {
                 <div className="flex gap-2">
                   {['yellow', 'blue', 'pink', 'green'].map(c => (
                     <button key={c} type="button" onClick={() => setNoteColour(c)}
-                      className={`w-8 h-8 rounded-full border-2 ${
-                        noteColour === c ? 'border-stone-900' : 'border-transparent'
-                      } ${getNoteColourClass(c)}`} />
+                      className={`w-8 h-8 rounded-full border-2 ${noteColour === c ? 'border-stone-900' : 'border-transparent'
+                        } ${getNoteColourClass(c)}`} />
                   ))}
                 </div>
               </div>

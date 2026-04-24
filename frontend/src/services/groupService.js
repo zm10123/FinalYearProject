@@ -2,21 +2,25 @@ import { supabase } from './supabaseClient'
 
 
 export async function getGroups() {
-  // get all groups the current user is a member of
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { data: [], error: null }
+
   const { data, error } = await supabase
     .from('group_members')
     .select('group_id, role, status, groups(id, name, description, module, created_by, created_at)')
+    .eq('user_id', user.id)  
     .in('status', ['accepted', 'pending'])
     .order('joined_at', { ascending: false })
 
   if (error) return { data: null, error }
 
-  // flatten the response so each item has group info + user's role
-  const groups = data.map(gm => ({
-    ...gm.groups,
-    userRole: gm.role,
-    memberStatus: gm.status
-  }))
+  const groups = data
+    .filter(gm => gm.groups !== null)
+    .map(gm => ({
+      ...gm.groups,
+      userRole: gm.role,
+      memberStatus: gm.status
+    }))
 
   return { data: groups, error: null }
 }
@@ -102,12 +106,12 @@ export async function deleteGroup(id) {
   return { error }
 }
 
-// --- members ---
+//  members 
 
 export async function getGroupMembers(groupId) {
   const { data, error } = await supabase
     .from('group_members')
-    .select('*, profiles(id, first_name, last_name, email)')
+    .select('*, profiles:user_id(id, first_name, last_name, email)')
     .eq('group_id', groupId)
     .order('joined_at', { ascending: true })
 
@@ -115,10 +119,9 @@ export async function getGroupMembers(groupId) {
 }
 
 export async function inviteMember(groupId, email, role) {
-  // first find the user by email
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('*, profiles:user_id(id, first_name, last_name, email)')
+    .select('id, email')
     .eq('email', email)
     .single()
 
@@ -144,7 +147,7 @@ export async function inviteMember(groupId, email, role) {
       .from('group_members')
       .update({ status: 'pending', role: role || 'viewer', invited_by: user.id })
       .eq('id', existing.id)
-      .select('*, profiles(id, first_name, last_name, email)')
+      .select('*, profiles:user_id(id, first_name, last_name, email)')
       .single()
     return { data, error }
   }
@@ -158,7 +161,7 @@ export async function inviteMember(groupId, email, role) {
       status: 'pending',
       invited_by: user.id,
     })
-    .select('*, profiles(id, first_name, last_name, email)')
+    .select('*, profiles:user_id(id, first_name, last_name, email)')
     .single()
 
   return { data, error }
@@ -215,7 +218,7 @@ export async function leaveGroup(groupId) {
   return removeMember(groupId, user.id)
 }
 
-// --- group tasks ---
+// group tasks 
 
 export async function addTaskToGroup(groupId, taskData) {
   const { data: { user } } = await supabase.auth.getUser()

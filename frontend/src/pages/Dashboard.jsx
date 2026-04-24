@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { getTasks, getScoredTasks } from '../services/taskService'
 import { getAllModules, getCourses } from '../services/moduleService'
+import { logFeeling } from '../services/pomodoroService'
 
 function Dashboard() {
   const [tasks, setTasks] = useState([])
@@ -9,6 +10,7 @@ function Dashboard() {
   const [modules, setModules] = useState([])
   const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(true)
+  const [selectedFeeling, setSelectedFeeling] = useState(null)
 
   useEffect(() => {
     loadDashboard()
@@ -29,7 +31,7 @@ function Dashboard() {
     setLoading(false)
   }
 
- 
+
 
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -236,7 +238,7 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* section 1: tasks + progress  */}
+      {/* tasks + progress  */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
 
         {/* upcoming deadlines */}
@@ -254,10 +256,8 @@ function Dashboard() {
                 const isOverdue = task.due_date && new Date(task.due_date) < startOfToday
                 return (
                   <Link key={task.id} to={`/tasks/${task.id}`}
-                    className={`flex items-center gap-3 px-5 py-3 border-b border-stone-100 last:border-b-0 hover:bg-stone-50 ${
-                      isOverdue ? 'bg-red-50/50' : ''}`}>
-                    <div className={`w-4 h-4 rounded border-2 flex-shrink-0 ${
-                      task.status === 'completed' ? 'bg-stone-900 border-stone-900' : 'border-stone-300'}`} />
+                    className={`flex items-center gap-3 px-5 py-3 border-b border-stone-100 last:border-b-0 hover:bg-stone-50 ${isOverdue ? 'bg-red-50/50' : ''}`}>
+                    <div className={`w-4 h-4 rounded border-2 flex-shrink-0 ${task.status === 'completed' ? 'bg-stone-900 border-stone-900' : 'border-stone-300'}`} />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">{task.title}</div>
                       <div className="flex items-center gap-2 mt-0.5">
@@ -267,11 +267,10 @@ function Dashboard() {
                         <span className={`text-xs font-medium ${label.colour}`}>{label.text}</span>
                       </div>
                     </div>
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      task.priority === 'high' ? 'bg-red-50 text-red-600' :
-                      task.priority === 'medium' ? 'bg-amber-50 text-amber-600' :
-                      'bg-stone-100 text-stone-500'
-                    }`}>
+                    <span className={`text-xs px-2 py-1 rounded ${task.priority === 'high' ? 'bg-red-50 text-red-600' :
+                        task.priority === 'medium' ? 'bg-amber-50 text-amber-600' :
+                          'bg-stone-100 text-stone-500'
+                      }`}>
                       {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
                     </span>
                   </Link>
@@ -281,7 +280,7 @@ function Dashboard() {
           )}
         </div>
 
-        {/* right sidebar - module progress and calendar */}
+        {/* right sidebar, module progress and calendar */}
         <div className="space-y-4">
 
           {/* module progress */}
@@ -359,14 +358,12 @@ function Dashboard() {
                 const isToday = day.date.toDateString() === now.toDateString()
                 const hasTasks = dayHasTasks(day.date)
                 return (
-                  <div key={i} className={`text-center text-xs py-1.5 rounded relative cursor-default ${
-                    !day.current ? 'text-stone-300' :
-                    isToday ? 'bg-stone-900 text-white font-semibold' : 'text-stone-700 hover:bg-stone-50'
-                  }`}>
+                  <div key={i} className={`text-center text-xs py-1.5 rounded relative cursor-default ${!day.current ? 'text-stone-300' :
+                      isToday ? 'bg-stone-900 text-white font-semibold' : 'text-stone-700 hover:bg-stone-50'
+                    }`}>
                     {day.date.getDate()}
                     {hasTasks && (
-                      <div className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${
-                        isToday ? 'bg-white' : 'bg-red-400'}`} />
+                      <div className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${isToday ? 'bg-white' : 'bg-red-400'}`} />
                     )}
                   </div>
                 )
@@ -398,10 +395,9 @@ function Dashboard() {
                     const isOverdue = !isCompleted && new Date(item.due_date) < startOfToday
                     return (
                       <div key={item.id} className={`relative pb-5 ${i === timelineItems.length - 1 ? 'pb-0' : ''}`}>
-                        <div className={`absolute -left-6 top-1 w-3 h-3 rounded-full border-2 ${
-                          isCompleted ? 'bg-green-500 border-green-500' :
-                          isOverdue ? 'border-red-500 bg-white' : 'border-stone-400 bg-white'
-                        }`} />
+                        <div className={`absolute -left-6 top-1 w-3 h-3 rounded-full border-2 ${isCompleted ? 'bg-green-500 border-green-500' :
+                            isOverdue ? 'border-red-500 bg-white' : 'border-stone-400 bg-white'
+                          }`} />
                         <div className="text-xs text-stone-400 font-mono mb-0.5">{formatShortDate(item.due_date)}</div>
                         <Link to={`/tasks/${item.id}`} className="text-sm font-medium hover:underline">{item.title}</Link>
                         <div className="text-xs text-stone-400">
@@ -415,10 +411,10 @@ function Dashboard() {
             </div>
           </div>
 
-          {/* gantt chart */}
+          {/* gantt chart, simple for now */}
           <div className="bg-white border border-stone-200 rounded-lg">
             <div className="flex justify-between items-center px-5 py-3 border-b border-stone-100">
-              <span className="text-sm font-semibold">Gantt Chart</span>
+              <span className="text-sm font-semibold">Deadline Chart</span>
             </div>
             <div className="p-5 overflow-x-auto">
               {ganttTasks.length === 0 ? (
@@ -628,10 +624,22 @@ function Dashboard() {
                       { emoji: '🙂', label: 'Good' },
                       { emoji: '😄', label: 'Great' },
                     ].map(f => (
-                      <button key={f.label}
-                        className="flex-1 py-2 border border-stone-200 rounded text-center hover:border-stone-400 transition-colors">
+                      <button
+                        key={f.label}
+                        onClick={async () => {
+                          await logFeeling(f.label)
+                          setSelectedFeeling(f.label)
+                        }}
+                        className={`flex-1 py-2 border rounded text-center transition-colors ${selectedFeeling === f.label
+                            ? 'border-stone-900 bg-stone-900'
+                            : 'border-stone-200 hover:border-stone-400'
+                          }`}
+                      >
                         <div className="text-lg">{f.emoji}</div>
-                        <div className="text-xs text-stone-400 mt-0.5">{f.label}</div>
+                        <div className={`text-xs mt-0.5 ${selectedFeeling === f.label ? 'text-white' : 'text-stone-400'
+                          }`}>
+                          {f.label}
+                        </div>
                       </button>
                     ))}
                   </div>

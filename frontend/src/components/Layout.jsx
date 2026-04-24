@@ -15,10 +15,12 @@ function Layout({ children }) {
   ]
 
   const secondaryNav = [
+    { name: 'Focus', path: '/pomodoro'},
+    { name: 'Study Planner', path: '/study-planner'},
+    { name: 'Predictions', path: '/predictions'},
     { name: 'Templates', path: '/templates'},
-    { name: 'Pomodoro', path: '/pomodoro'},
-    { name: 'Archive', path: '/archive'},
-    { name: 'Settings', path: '/settings'},
+    { name: 'History', path: '/history'},
+    { name: 'Settings', path: '/settings'}
   ]
 
   function isActive(path) {

@@ -23,8 +23,16 @@ function Register() {
       return
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters')
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters')
+      return
+    }
+    if (!/[a-zA-Z]/.test(password)) {
+      setError('Password must contain at least one letter')
+      return
+    }
+    if (!/[0-9]/.test(password)) {
+      setError('Password must contain at least one number')
       return
     }
 
@@ -108,7 +116,7 @@ function Register() {
               onChange={(e) => setPassword(e.target.value)}
               required
               className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
-              placeholder="At least 6 characters"
+              placeholder="At least 8 characters, letters and numbers"
             />
           </div>
 

@@ -10,6 +10,7 @@ import {
 } from '../services/taskService'
 import { getCourses, getModules } from '../services/moduleService'
 import { saveTaskAsTemplate } from '../services/templateService'
+import { supabase } from '../services/supabaseClient'
 
 function TaskDetail() {
   const { id } = useParams()
@@ -37,11 +38,12 @@ function TaskDetail() {
   // related data
   const [dependencies, setDependencies] = useState([])
   const [isCompleted, setIsCompleted] = useState(false)
-  const [completionInfo, setCompletionInfo] = useState(null)
 
   // subtask/note inputs
   const [newSubtask, setNewSubtask] = useState('')
   const [newNote, setNewNote] = useState('')
+  const [addingSubtask, setAddingSubtask] = useState(false)
+  const [addingNote, setAddingNote] = useState(false)
 
   // dependency adding
   const [showDepSearch, setShowDepSearch] = useState(false)
@@ -52,6 +54,9 @@ function TaskDetail() {
   const [scoreAchieved, setScoreAchieved] = useState('')
   const [scoreTotal, setScoreTotal] = useState('')
 
+  // for group tasks, track the user's role so we can lock down viewers
+  // null means this is a personal task (no group, no role restriction)
+  const [userGroupRole, setUserGroupRole] = useState(null)
 
   const [courses, setCourses] = useState([])
   const [editModules, setEditModules] = useState([])
@@ -74,6 +79,20 @@ function TaskDetail() {
 
     setTask(data)
 
+    // if this task belongs to a group, figure out the user's role
+    // so the ui can restrict viewers from editing
+    if (data.group_id) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: membership } = await supabase
+          .from('group_members')
+          .select('role')
+          .match({ group_id: data.group_id, user_id: user.id })
+          .single()
+        setUserGroupRole(membership?.role || null)
+      }
+    }
+
     // set up score fields
     if (data.score_achieved !== null) setScoreAchieved(String(data.score_achieved))
     if (data.score_total !== null) setScoreTotal(String(data.score_total))
@@ -92,7 +111,6 @@ function TaskDetail() {
   }
 
   function startEditing() {
-    // populate edit form with current values
     setEditTitle(task.title)
     setEditDescription(task.description || '')
     setEditTaskType(task.task_type || 'assignment')
@@ -103,7 +121,6 @@ function TaskDetail() {
     setEditDuration(task.estimated_duration ? String(task.estimated_duration) : '')
     setEditWeighting(task.weighting ? String(task.weighting) : '')
 
-    // figure out course from module
     if (task.modules?.courses?.id) {
       setEditCourseId(task.modules.courses.id)
     }
@@ -111,7 +128,6 @@ function TaskDetail() {
       setEditModuleId(task.module_id)
     }
 
-    // load courses and modules for dropdowns
     loadEditDropdowns()
     setEditing(true)
   }
@@ -120,7 +136,6 @@ function TaskDetail() {
     const { data: coursesData } = await getCourses()
     if (coursesData) setCourses(coursesData)
 
-    // if there's already a course selected, load its modules
     if (task.modules?.courses?.id) {
       const { data: modulesData } = await getModules(task.modules.courses.id)
       if (modulesData) setEditModules(modulesData)
@@ -159,7 +174,6 @@ function TaskDetail() {
     if (updateError) {
       setError(updateError.message)
     } else {
-      // reload the full task to get joined data
       await loadTask()
       setEditing(false)
     }
@@ -192,18 +206,44 @@ function TaskDetail() {
     if (!err) navigate('/tasks')
   }
 
- async function handleDelete() {
-  if (!window.confirm('Delete this task? It will be removed from your task list but any scores will still count towards your grades.')) return
-  const { error: err } = await deleteTask(id)
-  if (!err) navigate('/tasks')
-}
+  async function handleDelete() {
+    const confirmed = window.confirm(
+      'Delete this task permanently? Its score will no longer count towards your grades or predictions. This cannot be undone.'
+    )
+    if (!confirmed) return
+    const { error: err } = await deleteTask(id)
+    if (err) setError(err.message)
+    else navigate('/tasks')
+  }
 
   async function handleSaveScore() {
-    if (!scoreAchieved || !scoreTotal) return
-    const { error: err } = await updateTask(id, {
-      score_achieved: parseFloat(scoreAchieved),
-      score_total: parseFloat(scoreTotal)
-    })
+    setError('')
+    const bothEmpty = !scoreAchieved && !scoreTotal
+    const bothFilled = scoreAchieved && scoreTotal
+
+    if (!bothEmpty && !bothFilled) {
+      setError('Fill both mark and total, or clear both to remove the score')
+      return
+    }
+
+    if (bothFilled) {
+      const percentage = (parseFloat(scoreAchieved) / parseFloat(scoreTotal)) * 100
+      if (percentage > 100) {
+        const confirmed = window.confirm(
+          `This score is ${percentage.toFixed(1)}% - above 100%. Are you sure? (Bonus marks could go above)`
+        )
+        if (!confirmed) return
+      }
+    }
+
+    const updates = bothEmpty
+      ? { score_achieved: null, score_total: null }
+      : {
+        score_achieved: parseFloat(scoreAchieved),
+        score_total: parseFloat(scoreTotal),
+      }
+
+    const { error: err } = await updateTask(id, updates)
     if (err) {
       setError(err.message)
     } else {
@@ -211,13 +251,27 @@ function TaskDetail() {
     }
   }
 
+  async function handleClearScore() {
+    if (!window.confirm('Remove this score? It will no longer count towards your grades.')) return
+    setScoreAchieved('')
+    setScoreTotal('')
+    const { error: err } = await updateTask(id, {
+      score_achieved: null,
+      score_total: null,
+    })
+    if (err) setError(err.message)
+    else await loadTask()
+  }
+
   async function handleAddSubtask(e) {
     e.preventDefault()
     if (!newSubtask.trim()) return
+    setAddingSubtask(true)
     const { data, error: err } = await addSubtask(id, newSubtask.trim())
     if (!err && data) {
       setTask({ ...task, subtasks: [...(task.subtasks || []), data] })
       setNewSubtask('')
+      setAddingSubtask(false)
     }
   }
 
@@ -246,10 +300,12 @@ function TaskDetail() {
   async function handleAddNote(e) {
     e.preventDefault()
     if (!newNote.trim()) return
+    setAddingNote(true)
     const { data, error: err } = await addTaskNote(id, newNote.trim())
     if (!err && data) {
       setTask({ ...task, notes: [data, ...(task.notes || [])] })
       setNewNote('')
+      setAddingNote(false)
     }
   }
 
@@ -263,7 +319,6 @@ function TaskDetail() {
   async function handleShowDepSearch() {
     const { data } = await getTasks({})
     if (data) {
-      // filter out current task and existing dependencies
       const depIds = dependencies.map(d => d.depends_on_id)
       setAvailableTasks(data.filter(t => t.id !== id && !depIds.includes(t.id)))
     }
@@ -322,8 +377,13 @@ function TaskDetail() {
     })
   }
 
-  // check if dependencies are blocking completion
   const hasBlockingDeps = dependencies.some(d => d.tasks?.status !== 'completed')
+
+  // permission flags
+  // viewers in a group can only view and tick their own completion
+  // anyone else (personal tasks, editors, admins) can do everything
+  const isViewer = userGroupRole === 'viewer'
+  const canEdit = !isViewer
 
   if (loading) return <div className="p-8 text-stone-400">Loading...</div>
   if (!task) return <div className="p-8 text-stone-500">Task not found</div>
@@ -341,13 +401,20 @@ function TaskDetail() {
         <div className="bg-red-50 text-red-600 text-sm p-3 rounded mb-4">{error}</div>
       )}
 
+      {/* viewers get a heads-up banner so they know why things are disabled */}
+      {isViewer && (
+        <div className="bg-blue-50 text-blue-700 text-sm p-3 rounded mb-4">
+          You have viewer access to this group task. You can mark your own completion but cannot make changes.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* main content */}
         <div className="lg:col-span-2 space-y-6">
 
           {/* task header / edit form */}
           <div className="bg-white border border-stone-200 rounded-lg p-6">
-            {editing ? (
+            {editing && canEdit ? (
               <form onSubmit={handleSaveEdit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Title</label>
@@ -419,13 +486,14 @@ function TaskDetail() {
                       {editDeadlineType === 'flexible' ? 'Earliest Date' : 'Due Date'}
                     </label>
                     <input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)}
+                      min={new Date().toISOString().split('T')[0]}
                       className="w-full px-3 py-2 border border-stone-300 rounded text-sm" />
                   </div>
                   {editDeadlineType === 'flexible' && (
                     <div>
                       <label className="block text-sm font-medium mb-1">Latest Date</label>
                       <input type="date" value={editDueDateEnd} onChange={(e) => setEditDueDateEnd(e.target.value)}
-                        min={editDueDate}
+                        min={new Date().toISOString().split('T')[0]}
                         className="w-full px-3 py-2 border border-stone-300 rounded text-sm" />
                     </div>
                   )}
@@ -453,13 +521,12 @@ function TaskDetail() {
               <div>
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <h1 className="text-xl font-bold mb-2">{task.title}</h1>
+                    <h1 className="text-xl font-bold mb-2 break-words">{task.title}</h1>
                     <div className="flex flex-wrap gap-2">
-                      <span className={`text-xs px-2 py-1 rounded ${
-                        task.priority === 'high' ? 'bg-red-50 text-red-600' :
+                      <span className={`text-xs px-2 py-1 rounded ${task.priority === 'high' ? 'bg-red-50 text-red-600' :
                         task.priority === 'medium' ? 'bg-amber-50 text-amber-600' :
-                        'bg-stone-100 text-stone-500'
-                      }`}>
+                          'bg-stone-100 text-stone-500'
+                        }`}>
                         {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)} Priority
                       </span>
                       {task.task_type && (
@@ -468,11 +535,10 @@ function TaskDetail() {
                         </span>
                       )}
                       {task.deadline_type && (
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          task.deadline_type === 'hard' ? 'bg-red-50 text-red-600' :
+                        <span className={`text-xs px-2 py-1 rounded ${task.deadline_type === 'hard' ? 'bg-red-50 text-red-600' :
                           task.deadline_type === 'soft' ? 'bg-amber-50 text-amber-500' :
-                          'bg-blue-50 text-blue-600'
-                        }`}>
+                            'bg-blue-50 text-blue-600'
+                          }`}>
                           {task.deadline_type.charAt(0).toUpperCase() + task.deadline_type.slice(1)} deadline
                         </span>
                       )}
@@ -484,18 +550,19 @@ function TaskDetail() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={startEditing}
-                      className="px-3 py-1.5 text-sm border border-stone-300 rounded hover:bg-stone-50">Edit</button>
+                    {canEdit && (
+                      <button onClick={startEditing}
+                        className="px-3 py-1.5 text-sm border border-stone-300 rounded hover:bg-stone-50">Edit</button>
+                    )}
                     <button onClick={handleComplete}
                       disabled={hasBlockingDeps && !isCompleted}
                       title={hasBlockingDeps && !isCompleted ? 'Blocked by dependencies' : ''}
-                      className={`px-3 py-1.5 text-sm rounded ${
-                        isCompleted
-                          ? 'bg-green-50 text-green-700 border border-green-200'
-                          : hasBlockingDeps
-                            ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                            : 'bg-stone-900 text-white hover:bg-stone-800'
-                      }`}>
+                      className={`px-3 py-1.5 text-sm rounded ${isCompleted
+                        ? 'bg-green-50 text-green-700 border border-green-200'
+                        : hasBlockingDeps
+                          ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                          : 'bg-stone-900 text-white hover:bg-stone-800'
+                        }`}>
                       {isCompleted ? 'Completed ✓' : hasBlockingDeps ? 'Blocked' : 'Mark Complete'}
                     </button>
                   </div>
@@ -515,23 +582,34 @@ function TaskDetail() {
               <div className="space-y-2 mb-4">
                 {task.subtasks.map(sub => (
                   <div key={sub.id} className="flex items-center gap-3">
-                    <button onClick={() => handleToggleSubtask(sub.id, sub.is_completed)}
-                      className={`w-4 h-4 rounded border-2 flex-shrink-0 ${
-                        sub.is_completed ? 'bg-stone-900 border-stone-900' : 'border-stone-300'}`} />
-                    <span className={`text-sm flex-1 ${
-                      sub.is_completed ? 'line-through text-stone-400' : ''}`}>{sub.title}</span>
-                    <button onClick={() => handleDeleteSubtask(sub.id)}
-                      className="text-stone-300 hover:text-red-500 text-sm">×</button>
+                    <button
+                      onClick={() => canEdit && handleToggleSubtask(sub.id, sub.is_completed)}
+                      disabled={!canEdit}
+                      className={`w-4 h-4 rounded border-2 flex-shrink-0 ${sub.is_completed ? 'bg-stone-900 border-stone-900' : 'border-stone-300'} ${!canEdit ? 'cursor-not-allowed opacity-60' : ''}`}
+                    />
+                    <span className={`text-sm flex-1 ${sub.is_completed ? 'line-through text-stone-400' : ''}`}>{sub.title}</span>
+                    {canEdit && (
+                      <button onClick={() => handleDeleteSubtask(sub.id)}
+                        className="text-stone-300 hover:text-red-500 text-sm">×</button>
+                    )}
                   </div>
                 ))}
               </div>
             )}
-            <form onSubmit={handleAddSubtask} className="flex gap-2">
-              <input type="text" value={newSubtask} onChange={(e) => setNewSubtask(e.target.value)}
-                placeholder="Add a subtask..."
-                className="flex-1 px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
-              <button type="submit" className="px-3 py-2 text-sm border border-stone-300 rounded hover:bg-stone-50">Add</button>
-            </form>
+            {canEdit ? (
+              <form onSubmit={handleAddSubtask} className="flex gap-2">
+                <input type="text" value={newSubtask} onChange={(e) => setNewSubtask(e.target.value)}
+                  placeholder="Add a subtask..."
+                  className="flex-1 px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
+                <button type="submit" disabled={addingSubtask} className="px-3 py-2 text-sm border border-stone-300 rounded hover:bg-stone-50">
+                  {addingSubtask ? 'Adding...' : 'Add'}
+                </button>
+              </form>
+            ) : (
+              task.subtasks && task.subtasks.length === 0 && (
+                <p className="text-xs text-stone-400">No subtasks</p>
+              )
+            )}
           </div>
 
           {/* notes */}
@@ -543,20 +621,30 @@ function TaskDetail() {
                   <div key={note.id} className="bg-stone-50 rounded p-3">
                     <div className="flex justify-between items-start mb-1">
                       <span className="text-xs text-stone-400 font-mono">{formatTimestamp(note.created_at)}</span>
-                      <button onClick={() => handleDeleteNote(note.id)}
-                        className="text-stone-300 hover:text-red-500 text-xs">×</button>
+                      {canEdit && (
+                        <button onClick={() => handleDeleteNote(note.id)}
+                          className="text-stone-300 hover:text-red-500 text-xs">×</button>
+                      )}
                     </div>
                     <p className="text-sm">{note.content}</p>
                   </div>
                 ))}
               </div>
             )}
-            <form onSubmit={handleAddNote} className="flex gap-2">
-              <input type="text" value={newNote} onChange={(e) => setNewNote(e.target.value)}
-                placeholder="Add a note..."
-                className="flex-1 px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
-              <button type="submit" className="px-3 py-2 text-sm border border-stone-300 rounded hover:bg-stone-50">Add</button>
-            </form>
+            {canEdit ? (
+              <form onSubmit={handleAddNote} className="flex gap-2">
+                <input type="text" value={newNote} onChange={(e) => setNewNote(e.target.value)}
+                  placeholder="Add a note..."
+                  className="flex-1 px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
+                <button type="submit" disabled={addingNote} className="px-3 py-2 text-sm border border-stone-300 rounded hover:bg-stone-50">
+                  {addingNote ? 'Adding...' : 'Add'}
+                </button>
+              </form>
+            ) : (
+              task.notes && task.notes.length === 0 && (
+                <p className="text-xs text-stone-400">No notes</p>
+              )
+            )}
           </div>
 
           {/* dependencies */}
@@ -566,42 +654,48 @@ function TaskDetail() {
               <div className="space-y-2 mb-4">
                 {dependencies.map(dep => (
                   <div key={dep.id} className="flex items-center gap-3 p-2 bg-stone-50 rounded">
-                    <span className={`w-2 h-2 rounded-full ${
-                      dep.tasks?.status === 'completed' ? 'bg-green-500' : 'bg-amber-400'}`} />
+                    <span className={`w-2 h-2 rounded-full ${dep.tasks?.status === 'completed' ? 'bg-green-500' : 'bg-amber-400'}`} />
                     <span className="text-sm flex-1">{dep.tasks?.title || 'Unknown task'}</span>
                     <span className="text-xs text-stone-400">
                       {dep.tasks?.status === 'completed' ? 'Done' : 'Pending'}
                     </span>
-                    <button onClick={() => handleRemoveDep(dep.id)}
-                      className="text-stone-300 hover:text-red-500 text-xs">×</button>
+                    {canEdit && (
+                      <button onClick={() => handleRemoveDep(dep.id)}
+                        className="text-stone-300 hover:text-red-500 text-xs">×</button>
+                    )}
                   </div>
                 ))}
               </div>
             )}
 
-            {showDepSearch ? (
-              <div className="space-y-2">
-                <input type="text" value={depSearch} onChange={(e) => setDepSearch(e.target.value)}
-                  placeholder="Search for a task..."
-                  className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
-                <div className="max-h-40 overflow-y-auto space-y-1">
-                  {availableTasks
-                    .filter(t => !depSearch || t.title.toLowerCase().includes(depSearch.toLowerCase()))
-                    .map(t => (
-                      <button key={t.id} onClick={() => handleAddDep(t.id)}
-                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-stone-50">
-                        {t.title}
-                      </button>
-                    ))}
+            {canEdit && (
+              showDepSearch ? (
+                <div className="space-y-2">
+                  <input type="text" value={depSearch} onChange={(e) => setDepSearch(e.target.value)}
+                    placeholder="Search for a task..."
+                    className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900" />
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {availableTasks
+                      .filter(t => !depSearch || t.title.toLowerCase().includes(depSearch.toLowerCase()))
+                      .map(t => (
+                        <button key={t.id} onClick={() => handleAddDep(t.id)}
+                          className="w-full text-left px-3 py-2 text-sm rounded hover:bg-stone-50">
+                          {t.title}
+                        </button>
+                      ))}
+                  </div>
+                  <button onClick={() => setShowDepSearch(false)}
+                    className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
                 </div>
-                <button onClick={() => setShowDepSearch(false)}
-                  className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
-              </div>
-            ) : (
-              <button onClick={handleShowDepSearch}
-                className="w-full py-2 text-sm border border-dashed border-stone-300 rounded hover:bg-stone-50 text-stone-500">
-                + Add Dependency
-              </button>
+              ) : (
+                <button onClick={handleShowDepSearch}
+                  className="w-full py-2 text-sm border border-dashed border-stone-300 rounded hover:bg-stone-50 text-stone-500">
+                  + Add Dependency
+                </button>
+              )
+            )}
+            {!canEdit && dependencies.length === 0 && (
+              <p className="text-xs text-stone-400">No dependencies</p>
             )}
           </div>
         </div>
@@ -678,7 +772,7 @@ function TaskDetail() {
             </div>
           </div>
 
-          {/* scoring */}
+          {/* scoring, viewers can see the score but not edit it */}
           <div className="bg-white border border-stone-200 rounded-lg p-5">
             <h3 className="text-sm font-semibold mb-4">Score</h3>
             <div className="space-y-3">
@@ -687,16 +781,27 @@ function TaskDetail() {
                 <div className="flex items-center gap-2">
                   <input type="number" value={scoreAchieved}
                     onChange={(e) => setScoreAchieved(e.target.value)}
-                    className="w-20 px-3 py-2 border border-stone-300 rounded text-sm text-center font-mono"
+                    disabled={!canEdit}
+                    className="w-20 px-3 py-2 border border-stone-300 rounded text-sm text-center font-mono disabled:bg-stone-50 disabled:text-stone-400"
                     placeholder="0" min="0" />
                   <span className="text-stone-400">/</span>
                   <input type="number" value={scoreTotal}
                     onChange={(e) => setScoreTotal(e.target.value)}
-                    className="w-20 px-3 py-2 border border-stone-300 rounded text-sm text-center font-mono"
+                    disabled={!canEdit}
+                    className="w-20 px-3 py-2 border border-stone-300 rounded text-sm text-center font-mono disabled:bg-stone-50 disabled:text-stone-400"
                     placeholder="100" min="0" />
-                  <button onClick={handleSaveScore}
-                    className="px-3 py-2 text-xs bg-stone-900 text-white rounded">Save</button>
+                  {canEdit && (
+                    <button onClick={handleSaveScore}
+                      className="px-3 py-2 text-xs bg-stone-900 text-white rounded">Save</button>
+                  )}
                 </div>
+
+                {canEdit && task.score_achieved !== null && (
+                  <button onClick={handleClearScore}
+                    className="text-xs text-stone-400 hover:text-red-500 mt-1">
+                    Clear score
+                  </button>
+                )}
               </div>
               {task.score_achieved !== null && task.score_total && (
                 <div className="bg-stone-50 rounded p-3 flex justify-between items-center">
@@ -729,21 +834,23 @@ function TaskDetail() {
             </div>
           )}
 
-          {/* actions */}
-          <div className="bg-white border border-stone-200 rounded-lg p-5 space-y-2">
-            <button onClick={handleSaveAsTemplate}
-              className="w-full py-2 text-sm text-stone-600 border border-stone-200 rounded hover:bg-stone-50">
-              Save as Template
-            </button>
-            <button onClick={handleArchive}
-              className="w-full py-2 text-sm text-amber-600 border border-amber-200 rounded hover:bg-amber-50">
-              Archive
-            </button>
-            <button onClick={handleDelete}
-              className="w-full py-2 text-sm text-red-600 border border-red-200 rounded hover:bg-red-50">
-              Delete
-            </button>
-          </div>
+          {/* actions  */}
+          {canEdit && (
+            <div className="bg-white border border-stone-200 rounded-lg p-5 space-y-2">
+              <button onClick={handleSaveAsTemplate}
+                className="w-full py-2 text-sm text-stone-600 border border-stone-200 rounded hover:bg-stone-50">
+                Save as Template
+              </button>
+              <button onClick={handleArchive}
+                className="w-full py-2 text-sm text-amber-600 border border-amber-200 rounded hover:bg-amber-50">
+                Remove and archive (Keeps score for grades)
+              </button>
+              <button onClick={handleDelete}
+                className="w-full py-2 text-sm text-red-600 border border-red-200 rounded hover:bg-red-50">
+                Delete Permanently
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

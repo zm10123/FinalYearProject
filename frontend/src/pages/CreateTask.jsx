@@ -103,7 +103,7 @@ function CreateTask() {
       setRecurrencePattern(data.recurrence_pattern || 'weekly')
       if (data.module_id) {
         setModuleId(data.module_id)
-        
+
       }
     }
   }
@@ -274,9 +274,11 @@ function CreateTask() {
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              maxLength={100}
               className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
               placeholder="e.g. Database Coursework"
             />
+            <p className="text-xs text-stone-400 mt-1 text-right">{title.length}/100</p>
           </div>
 
           <div>
@@ -412,20 +414,20 @@ function CreateTask() {
         </div>
 
         {groups.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium mb-1">Group (optional)</label>
-              <select
-                value={groupId}
-                onChange={(e) => setGroupId(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
-              >
-                <option value="">Personal task</option>
-                {groups.map(g => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div>
+            <label className="block text-sm font-medium mb-1">Group (optional)</label>
+            <select
+              value={groupId}
+              onChange={(e) => setGroupId(e.target.value)}
+              className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
+            >
+              <option value="">Personal task</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* deadline and priority */}
         <div className="bg-white border border-stone-200 rounded-lg p-6 space-y-4">
@@ -440,6 +442,7 @@ function CreateTask() {
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
                 className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
               />
             </div>
@@ -478,7 +481,7 @@ function CreateTask() {
                 type="date"
                 value={dueDateEnd}
                 onChange={(e) => setDueDateEnd(e.target.value)}
-                min={dueDate}
+                min={new Date().toISOString().split('T')[0]}
                 className="w-full px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:border-stone-900"
               />
               <p className="text-xs text-stone-400 mt-1">
@@ -528,11 +531,9 @@ function CreateTask() {
             <button
               type="button"
               onClick={() => setIsRecurring(!isRecurring)}
-              className={`w-10 h-5 rounded-full relative transition-colors ${
-                isRecurring ? 'bg-stone-900' : 'bg-stone-300'}`}
+              className={`w-10 h-5 rounded-full relative transition-colors ${isRecurring ? 'bg-stone-900' : 'bg-stone-300'}`}
             >
-              <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                isRecurring ? 'left-5' : 'left-0.5'}`} />
+              <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${isRecurring ? 'left-5' : 'left-0.5'}`} />
             </button>
             <span className="text-sm">Repeat this task</span>
           </div>
@@ -544,11 +545,10 @@ function CreateTask() {
                   key={pattern}
                   type="button"
                   onClick={() => setRecurrencePattern(pattern)}
-                  className={`px-3 py-1.5 rounded text-sm border ${
-                    recurrencePattern === pattern
-                      ? 'bg-stone-900 text-white border-stone-900'
-                      : 'border-stone-300 hover:border-stone-400'
-                  }`}
+                  className={`px-3 py-1.5 rounded text-sm border ${recurrencePattern === pattern
+                    ? 'bg-stone-900 text-white border-stone-900'
+                    : 'border-stone-300 hover:border-stone-400'
+                    }`}
                 >
                   {pattern.charAt(0).toUpperCase() + pattern.slice(1)}
                 </button>

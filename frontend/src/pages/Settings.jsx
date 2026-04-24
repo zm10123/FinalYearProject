@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../services/supabaseClient'
 import { getCourses, getAllModules, createCourse, createModule, updateCourse, updateModule, deleteCourse, deleteModule } from '../services/moduleService'
+import { exportTasksCSV, exportGradesCSV, exportScheduleCSV } from '../services/exportService'
 function Settings() {
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
 
   // profile
   const [firstName, setFirstName] = useState('')
@@ -126,7 +127,24 @@ function Settings() {
   }
 
   async function handleDeleteCourse(courseId, name) {
-    if (!window.confirm(`Delete "${name}"? This will also delete all modules in this course.`)) return
+    // check how many tasks are linked to modules in this course
+    const courseModuleIds = allModules.filter(m => m.course_id === courseId).map(m => m.id)
+    let taskCount = 0
+
+    if (courseModuleIds.length > 0) {
+      const { count } = await supabase
+        .from('tasks')
+        .select('id', { count: 'exact', head: true })
+        .in('module_id', courseModuleIds)
+      taskCount = count || 0
+    }
+
+    const message = taskCount > 0
+      ? `Delete "${name}"?\n\nThis course has ${taskCount} task${taskCount !== 1 ? 's' : ''} linked to its modules. The tasks will remain but will no longer be linked to any course or module.\n\nAll modules in this course will be deleted.`
+      : `Delete "${name}"? This will also delete all modules in this course.`
+
+    if (!window.confirm(message)) return
+
     const { error: err } = await deleteCourse(courseId)
     if (err) {
       setError(err.message)
@@ -136,7 +154,7 @@ function Settings() {
     }
   }
 
-  // --- modules ---
+  //  modules 
 
   async function handleAddModule(e, courseId) {
     e.preventDefault()
@@ -161,7 +179,7 @@ function Settings() {
     }
   }
 
-  async function handleUpdateModule(moduleId, updates) {
+  async function handleUpdateModule(moduleId, updates) { // not using atm
     const { data, error: err } = await updateModule(moduleId, updates)
     if (err) {
       setError(err.message)
@@ -172,7 +190,20 @@ function Settings() {
   }
 
   async function handleDeleteModule(moduleId, name) {
-    if (!window.confirm(`Delete "${name}"? Tasks linked to this module will be unlinked.`)) return
+    // count tasks linked to this module
+    const { count } = await supabase
+      .from('tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('module_id', moduleId)
+
+    const taskCount = count || 0
+
+    const message = taskCount > 0
+      ? `Delete "${name}"?\n\nThis module has ${taskCount} task${taskCount !== 1 ? 's' : ''} linked to it. The tasks will remain but will no longer be linked to any module.\n\nAre you sure?`
+      : `Delete "${name}"?`
+
+    if (!window.confirm(message)) return
+
     const { error: err } = await deleteModule(moduleId)
     if (err) {
       setError(err.message)
@@ -335,7 +366,44 @@ function Settings() {
           </div>
         )}
       </div>
+      <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
+        <h2 className="text-sm font-semibold mb-4">Export Data</h2>
+        <p className="text-xs text-stone-500 mb-4">
+          Download your data as CSV files
+        </p>
 
+        <div className="space-y-2">
+          <button
+            onClick={async () => {
+              try { await exportTasksCSV() }
+              catch (e) { setError('Export failed') }
+            }}
+            className="w-full py-2 text-sm border border-stone-300 rounded hover:bg-stone-50 text-left px-4"
+          >
+            Export All Tasks
+          </button>
+
+          <button
+            onClick={async () => {
+              try { await exportGradesCSV() }
+              catch (e) { setError('Export failed') }
+            }}
+            className="w-full py-2 text-sm border border-stone-300 rounded hover:bg-stone-50 text-left px-4"
+          >
+            Export Grades
+          </button>
+
+          <button
+            onClick={async () => {
+              try { await exportScheduleCSV() }
+              catch (e) { setError('Export failed') }
+            }}
+            className="w-full py-2 text-sm border border-stone-300 rounded hover:bg-stone-50 text-left px-4"
+          >
+            Export Schedule
+          </button>
+        </div>
+      </div>
       {/* The danger zone */}
       <div className="bg-white border border-red-200 rounded-lg p-6">
         <h2 className="text-sm font-semibold text-red-600 mb-3">Danger Zone</h2>
