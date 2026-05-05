@@ -87,8 +87,8 @@ function Dashboard() {
   }
 
   // eisenhower matrix
-  const threeDays = new Date(startOfToday)
-  threeDays.setDate(threeDays.getDate() + 3)
+  const twoDays = new Date(startOfToday)
+  twoDays.setDate(twoDays.getDate() + 2)
 
   function isUrgent(t) {
     if (!t.due_date) return false

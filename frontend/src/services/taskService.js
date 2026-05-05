@@ -63,7 +63,6 @@ export async function getTaskById(id) {
   return { task, error: null }
 }
 
-
 export async function createTask(taskData) {
   const { data: { user } } = await supabase.auth.getUser()
 
